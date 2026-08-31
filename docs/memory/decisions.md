@@ -55,3 +55,59 @@ server-rendered and also server-keyed. **Chosen:** `enable row level security`
 with zero policies, so anon/authenticated clients get nothing while service_role
 keeps working. **Rejected:** leaving RLS off (Supabase flags it, and the tables
 would be readable by anyone holding the anon key).
+
+## 2026-08-31 — `tzdata` added, so Eastern-to-UTC conversion is real
+Windows ships no IANA time zone database, so `zoneinfo.ZoneInfo("America/New_York")`
+raises there. FRED gives a release *date* with no time, so the skeleton has to
+supply 08:30/10:00/14:00 ET itself and convert. **Chosen:** add the `tzdata`
+package and convert through the real zone, so a January release is 13:30 UTC and
+a July one 12:30 UTC. **Rejected:** hard-coding UTC-5 or UTC-4 (wrong for half
+the year, and the concept doc names exactly this as a known risk), and storing
+the naive date at midnight (would sort wrongly and shift event ids).
+
+## 2026-08-31 — Skeleton and feed rows share one primary key
+`calendar_skeleton` names releases as FRED does, `ff_sync` as ForexFactory does.
+Left alone, the same CPI print would be stored twice. **Chosen:** translate FRED
+release names to the ForexFactory title of that release's headline number
+(`fetchers/titles.py`), so both writers compute the same
+`USD|<title>|<YYYY-MM-DD>` id and the second updates the first's row. Feed-only
+secondary prints (Core CPI m/m, Unemployment Rate) still get their own rows
+inside the two-week forecast window. **Rejected:** a separate `source` table with
+a join (heavier than the problem), and letting duplicates through and
+de-duplicating in the UI (the notification diff would fire twice).
+
+## 2026-08-31 — Ownership rule: the feed wins over the skeleton
+A row carries `source`. `ff_sync` always overwrites; `calendar_skeleton` skips
+any row already marked `forexfactory`. **Chosen** so a precise feed timestamp is
+never replaced by the skeleton's standing-time guess on a later run. **Rejected:**
+last-writer-wins, which made the stored time flip depending on which cron ran
+last.
+
+## 2026-08-31 — Surprise is null, not zero, when the forecast is zero
+The formula divides by `|forecast|`. **Chosen:** return None for a zero forecast
+and render "n/a". **Rejected:** substituting an absolute difference, which would
+put a number on the same -3..+3 scale that does not mean the same thing as the
+others and would quietly corrupt any Stage 3 average built on it.
+
+## 2026-08-31 — Reminder tiers are disjoint, and flags are set before sending
+The 24h tier ignores anything inside 60 minutes, and sending the 1h reminder also
+sets `reminded_24h`. **Chosen** so an event ff_sync discovers *inside* the 24h
+window cannot fire a "24 hours away" message about something 40 minutes out.
+Flags are written before the send: **chosen** because a missed reminder is a much
+smaller failure than a loop re-sending every 15 minutes when the flag write fails
+after a successful send. **Rejected:** send-then-flag, and a single tier.
+
+## 2026-08-31 — ISM has no actuals source
+ISM withdrew its PMIs from FRED over licensing, and there is no free replacement.
+**Chosen:** keep ISM in the calendar (dates and forecasts come from ForexFactory,
+which is what the trader reads) but leave it unmapped in `series_map.py`, with the
+reason recorded so `fred_actuals` logs *why* it skipped rather than "unknown".
+**Rejected:** dropping ISM from the calendar, and scraping ismworld.org.
+
+## 2026-08-31 — FOMC dates: parse the Fed page, with a transcribed fallback
+FRED has no FOMC release. **Chosen:** regex the Federal Reserve calendar page
+(stable `fomc-meeting__month` / `fomc-meeting__date` class names) and keep a
+fallback table transcribed from it on 2026-08-31, used only when the fetch fails
+and logged loudly when it is. The announcement is the meeting's *closing* day.
+**Rejected:** adding BeautifulSoup for one page, and shipping only the hard-coded
+table (it would silently rot).
