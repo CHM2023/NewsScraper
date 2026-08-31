@@ -111,3 +111,37 @@ fallback table transcribed from it on 2026-08-31, used only when the fetch fails
 and logged loudly when it is. The announcement is the meeting's *closing* day.
 **Rejected:** adding BeautifulSoup for one page, and shipping only the hard-coded
 table (it would silently rot).
+
+## 2026-08-31 — The dollar index is the Fed's broad index, not ICE DXY
+ICE DXY is not available free with ten years of history. **Chosen:** FRED
+`DTWEXBGS`, the Fed's nominal broad trade-weighted dollar index, with yfinance
+`DX-Y.NYB` as a fallback if FRED returns nothing. The two correlate closely
+enough for conditioning a gold event study, and DTWEXBGS is one reliable API
+call for the whole backfill. **Rejected:** scraping ICE, and paying for a data
+vendor in a free-tier project. *If Stage 3 results ever look sensitive to this
+choice, revisit it - the column is named `dxy` but does not hold ICE DXY.*
+
+## 2026-08-31 — Gold: FRED LBMA first, yfinance when it is stale
+FRED's `GOLDPMGBD228NLBM` has been discontinued once already over ICE licensing.
+**Chosen:** read FRED, and if its newest observation is more than 10 days old (or
+absent) fall back to yfinance `GC=F` for the range, merging per date with FRED
+preferred. The run notes record which source answered. **Rejected:** yfinance
+only (less reliable in CI, and no London PM fix), and FRED only (would silently
+stop updating the day the series is retired again).
+
+## 2026-08-31 — Regime returns None, not "holding", when history is thin
+`classify_regime` needs a Fed funds observation both at the event date and 90
+days earlier. **Chosen:** return None when either is missing, so a partial
+backfill leaves `events.regime` null instead of labelling a decade of events as a
+flat rate environment - which would quietly corrupt the Stage 3 regime filter,
+the very thing the concept doc says prevents "confidently wrong answers".
+Threshold is 0.125, half a standard 25bp move, so quarter-end noise in the
+effective rate does not read as policy. **Rejected:** defaulting to "holding".
+
+## 2026-08-31 — Blackout windows are informational and asymmetric
+The brief asks for blackout logic to be tested but does not define it. **Chosen:**
+`fetchers/blackout.py`, a pure module giving a window of 30 minutes before to 15
+minutes after any event of weight >= 4, surfaced as a banner on the "today" page.
+Asymmetric because liquidity thins well before a print and returns sooner after
+it. Simultaneous releases report the heaviest event. **Rejected:** enforcing
+anything (the platform informs, it does not trade) and a symmetric window.
