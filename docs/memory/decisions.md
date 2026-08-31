@@ -231,3 +231,29 @@ so events stay pending and fire correctly once a token exists. `ff_sync.announce
 still logs each NEW/CHANGED line at INFO - that is the useful record - but sends
 nothing and counts no error. **Rejected:** letting reminders flag-and-drop (silent
 data loss), and treating a deliberately absent token as a run error.
+
+## 2026-08-31 — VERIFIED LIVE: every FRED series id in series_map.py is correct
+Resolved all 17 ids against `/fred/series` with the live key. All returned the
+expected series, including the four flagged in the last session's next-steps as
+most likely wrong: `PPIFIS` (PPI final demand), `RSFSXMV` (retail sales ex motor
+vehicles), `CES0500000003` (average hourly earnings) and `EXHOSLUSM495S`
+(existing home sales). **No id changes were needed.**
+Units were checked against the scales too, since a units mismatch would silently
+produce a surprise score off by a factor of a thousand: `PAYEMS` and the housing
+series report "Thous.", matching `scale=1000`; `EXHOSLUSM495S` reports "Number of
+Units", matching `scale=1`. `DFEDTARU` is daily and current to today, which is
+what `level_at_or_after` needs to read a decision on the day.
+
+## 2026-08-31 — GitHub CLI installed user-scope; its login needs a terminal
+`winget install --id GitHub.cli -e` failed with MSI exit code 1603 (the
+system-scope install wants elevation). `--scope user` succeeded via the zip
+package: `gh` 2.98.0 now sits at
+`%LOCALAPPDATA%\Microsoft\WinGet\Links\gh.exe`.
+`gh auth login --web` could not be driven from here - the device flow needs a
+TTY and produced no output with stdin closed, so it was stopped rather than left
+hanging. **Chosen:** the owner runs `gh auth login` once in their own terminal,
+after which this session can set the secrets; failing that, the three secrets go
+in by hand in the browser. **Rejected:** asking for a personal access token
+(a broader credential than the task needs, and one more secret to handle).
+Note SSH auth to GitHub already works, but that does not help: setting a
+repository secret goes through the REST API, which needs a token.
