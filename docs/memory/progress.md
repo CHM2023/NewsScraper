@@ -11,7 +11,7 @@ Status values: todo / in progress / done / blocked.
 | 5 | Telegram notifications + reminders | done | 35 tests; send never raises, reminders fire once | No Telegram credentials, so no live delivery test |
 | 6 | Actuals from FRED + surprise | done | 28 tests covering all five transforms | ISM unmapped by design; some FRED series ids unverified against the live API |
 | 7 | Daily prices + 10y backfill + regime | done | 66 tests: regime, blackout, source merge and gold fallback | dxy column holds the Fed broad index, not ICE DXY - see decisions.md |
-| 8 | GitHub Actions workflows | todo | — | — |
+| 8 | GitHub Actions workflows | done | 44 tests guard module names, secrets, crons and step order | Cannot run in GitHub Actions until the repo is pushed and secrets added |
 | 9 | Web: Today / This week | todo | — | — |
 | 10 | Web: Calendar + event detail | todo | — | — |
 

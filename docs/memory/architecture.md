@@ -72,3 +72,24 @@ environment (which is what GitHub Actions supplies). Missing variables raise
 
 ## Workarounds and source deviations
 Recorded here as they are discovered; the reasoning lives in `decisions.md`.
+
+## Scheduled workflows
+
+| Workflow | Cron (UTC) | Runs | Secrets |
+|---|---|---|---|
+| `calendar-sync.yml` | `0 * * * *` (hourly) | `fetchers.ff_sync` | Supabase + Telegram |
+| `reminders.yml` | `*/15 * * * *` | `fetchers.reminders` | Supabase + Telegram |
+| `daily.yml` | `0 7 * * *` | `calendar_skeleton`, `fred_actuals`, `prices_daily` | Supabase + FRED |
+| `tests.yml` | on push / PR | `pytest -q` | none |
+
+All three scheduled workflows set `concurrency` so runs cannot overlap: two
+`ff_sync` runs racing would diff against the same pre-write state and send the
+same NEW message twice. `daily.yml` runs at 07:00 UTC - after the US close and
+before the 08:30 ET releases - and its steps are ordered so the skeleton creates
+rows before actuals fill them and before `prices_daily` re-tags regimes.
+`daily.yml` also accepts a `backfill_years` input for the one-off history load.
+
+**Repository secrets to add** (Settings -> Secrets and variables -> Actions):
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`. `tests/test_workflows.py` fails if a workflow ever references
+a secret outside this set, or runs a fetcher module that does not exist.
