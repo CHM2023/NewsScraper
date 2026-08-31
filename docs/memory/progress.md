@@ -16,4 +16,25 @@ Status values: todo / in progress / done / blocked.
 | 10 | Web: Calendar + event detail | done | FullCalendar in UTC, colour by weight, HTMX detail panel with the Stage 3 slot | Event detail is reachable from the calendar only, not from the today table |
 
 ## Known gaps
-- No credentials supplied yet, so nothing has been run against live Supabase.
+
+Verified on 2026-08-31. All ten steps are code-complete and the suite is green
+(503 tests, no network). What has *not* been exercised end to end:
+
+- **Nothing has touched Supabase.** No credentials were supplied this session, so
+  `sql/001_init.sql` has not been applied and no fetcher has written a row. Every
+  database interaction is covered by tests against fakes, not against Postgres.
+- **No FRED call has been made.** `FRED_API_KEY` is absent, so
+  `calendar_skeleton`, `fred_actuals` and `prices_daily` are unverified against
+  the live API. The series ids in `series_map.py` are the most likely thing to be
+  wrong; a wrong id logs "no usable observation" and skips, it does not crash.
+- **No Telegram message has been sent.** `notify.send` is fully tested against a
+  fake transport, but the bot token has never been exercised.
+- **The repository has never been pushed.** No GitHub credential exists on this
+  machine, so the workflows have never run. See `decisions.md`.
+
+Verified live this session, without credentials:
+- ForexFactory: 112 entries, 27 USD rows parsed, `errors=0`.
+- The FOMC calendar parser against the real federalreserve.gov page: 27 dates,
+  and all 16 fallback dates for 2026-27 match it exactly.
+- `uvicorn web.app:app` serving `/`, `/calendar`, `/health` and the static files
+  over HTTP.
