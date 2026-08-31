@@ -189,3 +189,45 @@ with the event ids, which are keyed on the UTC date. A test asserts every
 setting or an offset cookie - the concept doc names a daylight-saving mistake as
 the bug most likely to break things silently, and the defence is that the server
 has no opinion about the viewer's zone at all.
+
+## 2026-08-31 — Push unblocked
+`ssh -T git@github.com` now greets `CHM2023`. `git push -u origin main` succeeded
+and `git ls-remote origin main` matches the local head. The blocked-push entry
+above is resolved; it is left in place because it records why the first session's
+commits were local only.
+
+## 2026-08-31 — `SUPABASE_SECRET_KEY` accepted as an alias
+Supabase's dashboard no longer says "service_role": the server-side key is now
+labelled a **Secret key** and starts `sb_secret_`. The owner's `.env` uses that
+name. **Chosen:** an `ALIASES` table in `common/config.py`, canonical name first,
+so `SUPABASE_SERVICE_KEY` resolves from `SUPABASE_SECRET_KEY`. **Rejected:**
+asking the owner to re-paste a secret under a different name, and renaming the
+variable everywhere (the workflows, `.env.example` and the docs all use the
+canonical name, and a rename would break any environment already set up).
+Verified: the key authenticates against PostgREST - the pre-schema probe
+returned `PGRST205 table not found`, which is a 404 *after* a successful auth,
+not the 401 a bad key gives.
+
+## 2026-08-31 — `psycopg` added, and a script rather than psql
+PostgREST cannot run DDL, and `psql` is not on this machine's PATH. **Chosen:**
+`psycopg[binary]` in requirements plus `scripts/apply_schema.py`, which sends the
+file as one transaction and then verifies the five tables and the 27 seeded
+weights. **Rejected:** installing the Postgres client tools for one statement,
+and pasting the SQL into the dashboard by hand (not reproducible, and the next
+migration would need the same manual step). `DATABASE_URL` stays out of the
+repository secrets: no workflow runs DDL.
+
+## 2026-08-31 — Telegram absent: degrade, never lose a reminder
+Credentials are deliberately unavailable this session. Two problems that only
+appear once a fetcher runs for real:
+1. `notify.send` warned on *every* call, so one ff_sync run with 30 qualifying
+   events would emit 30 warnings and write 30 `notifications_log` rows.
+2. Worse, `reminders` flips `reminded_*` **before** sending. With no token that
+   would have marked every due event as reminded and lost the reminder for good.
+**Chosen:** `notify.enabled()`, a warn-once notice reading exactly
+`notifications disabled: no token`, and no `notifications_log` row when nothing
+was attempted. `reminders.run()` degrades to a dry run when no bot is configured,
+so events stay pending and fire correctly once a token exists. `ff_sync.announce`
+still logs each NEW/CHANGED line at INFO - that is the useful record - but sends
+nothing and counts no error. **Rejected:** letting reminders flag-and-drop (silent
+data loss), and treating a deliberately absent token as a run error.

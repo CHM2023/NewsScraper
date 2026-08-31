@@ -18,9 +18,18 @@ log = logging.getLogger(__name__)
 KNOWN_VARS: dict[str, str] = {
     "SUPABASE_URL": "Supabase project URL, e.g. https://xxxx.supabase.co",
     "SUPABASE_SERVICE_KEY": "Supabase service_role key (Project Settings -> API)",
+    "DATABASE_URL": "Supabase -> Connect -> Session pooler URI, password percent-encoded",
     "FRED_API_KEY": "Free key from https://fredaccount.stlouisfed.org/apikeys",
     "TELEGRAM_BOT_TOKEN": "Bot token from @BotFather",
     "TELEGRAM_CHAT_ID": "Numeric chat id to send notifications to",
+}
+
+# Supabase renamed its server-side key: the dashboard now calls it a "Secret
+# key" (sb_secret_...) rather than service_role. Both names are accepted so the
+# owner can paste the variable under whichever name the dashboard shows, and an
+# existing .env keeps working. Canonical name first, then the alternates.
+ALIASES: dict[str, tuple[str, ...]] = {
+    "SUPABASE_SERVICE_KEY": ("SUPABASE_SECRET_KEY",),
 }
 
 _dotenv_loaded = False
@@ -49,12 +58,17 @@ def _load_dotenv_once() -> None:
 
 
 def get(name: str, default: str | None = None) -> str | None:
-    """Return a variable, or ``default``. Blank strings count as absent."""
+    """Return a variable, or ``default``. Blank strings count as absent.
+
+    Falls back to any alias registered for the name, so a value stored under
+    Supabase's own label is found without the owner having to re-paste a secret.
+    """
     _load_dotenv_once()
-    value = os.environ.get(name)
-    if value is None or not value.strip():
-        return default
-    return value.strip()
+    for candidate in (name, *ALIASES.get(name, ())):
+        value = os.environ.get(candidate)
+        if value is not None and value.strip():
+            return value.strip()
+    return default
 
 
 def require(name: str) -> str:

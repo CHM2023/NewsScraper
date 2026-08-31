@@ -20,12 +20,9 @@ def logged(monkeypatch):
 
 
 @pytest.fixture
-def configured(monkeypatch):
-    """Pretend the bot credentials are present."""
-    monkeypatch.setattr(
-        notify.config, "require",
-        lambda name: {"TELEGRAM_BOT_TOKEN": "test-token", "TELEGRAM_CHAT_ID": "42"}[name],
-    )
+def configured(telegram_on):
+    """Bot credentials present, via the real config path."""
+    assert notify.enabled()
 
 
 class TestSend:
@@ -59,25 +56,30 @@ class TestSend:
         assert captured["payload"]["chat_id"] == "42"
         assert captured["payload"]["text"] == "hello"
 
-    def test_missing_credentials_do_not_raise(self, logged, monkeypatch):
+    def test_missing_credentials_do_not_raise(self, logged):
         """A fetcher with no bot configured must still finish its real work."""
-        from common.config import MissingConfig
-
-        def missing(name):
-            raise MissingConfig(f"{name} is not set")
-
-        monkeypatch.setattr(notify.config, "require", missing)
         assert notify.send("NEW: CPI m/m") is False
 
-    def test_missing_credentials_still_leave_a_record(self, logged, monkeypatch):
-        from common.config import MissingConfig
+    def test_missing_credentials_write_no_record(self, logged):
+        """Nothing was attempted, so notifications_log gets nothing.
 
-        monkeypatch.setattr(
-            notify.config, "require",
-            lambda name: (_ for _ in ()).throw(MissingConfig(f"{name} is not set")),
-        )
+        A row per event per run would trade log spam for table spam.
+        """
         notify.send("NEW: CPI m/m")
-        assert logged and logged[0]["ok"] is False
+        assert logged == []
+
+    def test_the_disabled_notice_is_said_once_not_per_event(self, logged, caplog):
+        """A sync with 30 qualifying events must not log 30 warnings."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="fetchers.notify"):
+            for _ in range(30):
+                notify.send("NEW: CPI m/m")
+        warnings = [r for r in caplog.records if notify.DISABLED_MESSAGE in r.getMessage()]
+        assert len(warnings) == 1, f"expected one notice, got {len(warnings)}"
+
+    def test_enabled_reflects_the_configuration(self, logged, telegram_on):
+        assert notify.enabled() is True
 
     def test_a_refusal_from_telegram_reports_false(self, logged, configured, monkeypatch):
         monkeypatch.setattr(

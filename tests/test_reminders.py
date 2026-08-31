@@ -40,7 +40,7 @@ def fake_repo(monkeypatch):
 
 
 @pytest.fixture
-def sent(monkeypatch):
+def sent(monkeypatch, telegram_on):
     messages = []
     monkeypatch.setattr(
         reminders.notify, "send", lambda m, **kw: messages.append(m) or True
@@ -174,11 +174,44 @@ class TestRunTier:
         assert len(sent) == 1
         assert stats.errors == 1
 
-    def test_an_undelivered_reminder_is_counted(self, fake_repo, monkeypatch):
+    def test_an_undelivered_reminder_is_counted(self, fake_repo, monkeypatch, telegram_on):
         monkeypatch.setattr(reminders.notify, "send", lambda m, **kw: False)
         fake_repo["events"] = [event(30)]
         stats = reminders.run(dry_run=False)
         assert stats.errors == 1
+
+
+class TestNoTelegram:
+    """With no bot configured the run must change nothing.
+
+    Flags are flipped before sending, so running for real without a token would
+    mark every due event as reminded and lose the reminder permanently.
+    """
+
+    def test_it_flags_nothing(self, fake_repo, monkeypatch):
+        monkeypatch.setattr(reminders.notify, "send", lambda m, **kw: True)
+        fake_repo["events"] = [event(30)]
+        reminders.run(dry_run=False)
+        assert fake_repo["flagged"] == [], "a reminder would have been lost"
+
+    def test_the_event_stays_due_for_a_later_run(self, fake_repo, monkeypatch):
+        monkeypatch.setattr(reminders.notify, "send", lambda m, **kw: True)
+        row = event(30)
+        fake_repo["events"] = [row]
+        reminders.run(dry_run=False)
+        assert row["reminded_1h"] is False
+
+    def test_it_still_reports_what_is_due(self, fake_repo, monkeypatch):
+        monkeypatch.setattr(reminders.notify, "send", lambda m, **kw: True)
+        fake_repo["events"] = [event(30)]
+        stats = reminders.run(dry_run=False)
+        assert stats.fetched == 1
+        assert any("telegram not configured" in n for n in stats.notes)
+
+    def test_it_is_not_counted_as_an_error(self, fake_repo, monkeypatch):
+        monkeypatch.setattr(reminders.notify, "send", lambda m, **kw: True)
+        fake_repo["events"] = [event(30)]
+        assert reminders.run(dry_run=False).errors == 0
 
 
 class TestMessageFormat:

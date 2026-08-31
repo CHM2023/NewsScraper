@@ -218,7 +218,7 @@ class TestAnnounce:
         }
         return diff_events([row], {}), row
 
-    def test_high_weight_events_are_sent(self, monkeypatch):
+    def test_high_weight_events_are_sent(self, monkeypatch, telegram_on):
         from common.stats import Stats
 
         sent = []
@@ -228,7 +228,7 @@ class TestAnnounce:
         assert len(sent) == 1
 
     @pytest.mark.parametrize("weight", [1, 2, 3])
-    def test_low_weight_events_are_stored_silently(self, monkeypatch, weight):
+    def test_low_weight_events_are_stored_silently(self, monkeypatch, telegram_on, weight):
         from common.stats import Stats
 
         sent = []
@@ -237,7 +237,7 @@ class TestAnnounce:
         ff_sync.announce(result, Stats("t"))
         assert sent == [], "only weight >= 4 may interrupt the trader"
 
-    def test_the_threshold_is_four(self, monkeypatch):
+    def test_the_threshold_is_four(self, monkeypatch, telegram_on):
         from common.stats import Stats
 
         sent = []
@@ -247,7 +247,7 @@ class TestAnnounce:
         assert len(sent) == 1
         assert ff_sync.NOTIFY_MIN_WEIGHT == 4
 
-    def test_quiet_mode_sends_nothing(self, monkeypatch):
+    def test_quiet_mode_sends_nothing(self, monkeypatch, telegram_on):
         from common.stats import Stats
 
         sent = []
@@ -255,6 +255,23 @@ class TestAnnounce:
         result, _ = self._result(5)
         ff_sync.announce(result, Stats("t"), quiet=True)
         assert sent == []
+
+
+class TestAnnounceWithoutTelegram:
+    def test_nothing_is_sent_and_it_is_not_an_error(self, monkeypatch):
+        from common.stats import Stats
+
+        sent = []
+        monkeypatch.setattr(ff_sync.notify, "send", lambda m, **kw: sent.append(m) or True)
+        row = {
+            "id": "USD|X|2026-10-14", "title": "X",
+            "ts_utc": parse_iso("2026-10-14T12:30:00Z"), "weight": 5, "forecast": 0.3,
+        }
+        stats = Stats("t")
+        ff_sync.announce(diff_events([row], {}), stats)
+        assert sent == []
+        assert stats.errors == 0
+        assert any("telegram not configured" in n for n in stats.notes)
 
 
 class TestSerialise:

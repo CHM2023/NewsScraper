@@ -111,6 +111,16 @@ def run_tier(tier: Tier, stats: Stats, *, dry_run: bool = False) -> None:
 
 def run(*, dry_run: bool = False) -> Stats:
     stats = Stats("reminders")
+
+    if not dry_run and not notify.enabled():
+        # Flags are flipped before sending, so running for real with no bot
+        # configured would mark every due event as reminded and lose it
+        # permanently. Degrade to a dry run instead: the events stay pending and
+        # fire properly once a token exists.
+        notify.warn_disabled_once()
+        stats.note("telegram not configured: reported due reminders, flagged none")
+        dry_run = True
+
     for tier in TIERS:
         try:
             run_tier(tier, stats, dry_run=dry_run)

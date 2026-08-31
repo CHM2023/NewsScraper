@@ -100,3 +100,25 @@ def _no_network(monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket, "create_connection", guarded_create_connection)
+
+
+@pytest.fixture(autouse=True)
+def _telegram_off(monkeypatch):
+    """Default every test to "no bot configured", whatever the developer's .env says.
+
+    The suite must not change behaviour depending on whether the machine running
+    it happens to have credentials. Tests that need delivery turn it on with the
+    ``telegram_on`` fixture.
+    """
+    from fetchers import notify
+
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setattr(notify, "_disabled_warned", False)
+
+
+@pytest.fixture
+def telegram_on(monkeypatch):
+    """Configure a bot, so send() and the fetchers attempt delivery."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")

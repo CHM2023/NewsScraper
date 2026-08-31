@@ -191,7 +191,17 @@ def _fmt(value: float) -> str:
 
 
 def announce(result: DiffResult, stats: Stats, *, quiet: bool = False) -> None:
-    """Send NEW/CHANGED messages for the events that clear the weight bar."""
+    """Send NEW/CHANGED messages for the events that clear the weight bar.
+
+    With no bot configured the messages are still logged at INFO - that is the
+    useful record of what the run found - but no send is attempted and the
+    disabled notice is said once rather than once per event.
+    """
+    if not quiet and not notify.enabled():
+        notify.warn_disabled_once()
+        stats.note("telegram not configured: messages logged, none sent")
+        quiet = True
+
     for row in result.new:
         if row["weight"] < NOTIFY_MIN_WEIGHT:
             continue

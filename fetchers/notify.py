@@ -31,6 +31,34 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 # Telegram rejects anything longer; truncate rather than lose the message.
 MAX_MESSAGE_CHARS = 4096
 
+# Said once per process when no bot is configured. A fetcher run may have dozens
+# of qualifying events, and one warning per event would bury the real output.
+DISABLED_MESSAGE = "notifications disabled: no token"
+_disabled_warned = False
+
+
+def enabled() -> bool:
+    """Whether a Telegram bot is configured at all.
+
+    Callers use this to skip the send loop entirely rather than calling send()
+    once per event and collecting a warning each time.
+    """
+    return config.has("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID")
+
+
+def warn_disabled_once() -> None:
+    """Log the disabled notice the first time, then stay quiet."""
+    global _disabled_warned
+    if _disabled_warned:
+        log.debug("%s (already reported)", DISABLED_MESSAGE)
+        return
+    _disabled_warned = True
+    log.warning(
+        "%s - set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env to enable "
+        "delivery; everything else continues normally",
+        DISABLED_MESSAGE,
+    )
+
 
 def _log_attempt(message: str, *, event_id: str | None, ok: bool) -> None:
     """Record the attempt. A logging failure must not mask the send result."""
@@ -44,14 +72,21 @@ def send(message: str, *, event_id: str | None = None) -> bool:
     """Send one message to the configured Telegram chat. Never raises.
 
     Returns True only when Telegram confirmed the send. Missing credentials are
-    a warning rather than an error: a fetcher run with no bot configured should
-    still do its real work and record what it would have sent.
+    reported once per process and then ignored: a fetcher run with no bot
+    configured must still do its real work, and must not emit one warning per
+    qualifying event.
     """
     text = message.strip()
     if not text:
         return False
     if len(text) > MAX_MESSAGE_CHARS:
         text = text[: MAX_MESSAGE_CHARS - 3] + "..."
+
+    if not enabled():
+        # Nothing was attempted, so nothing is written to notifications_log:
+        # a row per event per run would trade log spam for table spam.
+        warn_disabled_once()
+        return False
 
     try:
         token = config.require("TELEGRAM_BOT_TOKEN")
