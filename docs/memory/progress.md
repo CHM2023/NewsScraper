@@ -4,8 +4,8 @@ Status values: todo / in progress / done / blocked.
 
 | # | Step | Status | Verified by | Gaps |
 |---|------|--------|-------------|------|
-| 1 | Project skeleton | in progress | — | — |
-| 2 | Supabase schema | todo | — | — |
+| 1 | Project skeleton | done | Skeleton committed; folders, pins, scripts in place | Push to origin blocked, see decisions.md |
+| 2 | Supabase schema | done | 5 tables + 27 seeded weights; SQL parses, not yet applied | Owner must run it in the Supabase SQL editor |
 | 3 | Annual calendar skeleton | todo | — | — |
 | 4 | ForexFactory weekly sync + diff | todo | — | — |
 | 5 | Telegram notifications + reminders | todo | — | — |
