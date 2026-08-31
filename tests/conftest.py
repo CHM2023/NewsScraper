@@ -59,15 +59,44 @@ def weights() -> dict[str, int]:
     }
 
 
+# Loopback is left open: Starlette's TestClient runs the app through an
+# in-process portal whose event loop builds a self-pipe over 127.0.0.1, and
+# asyncio would fail to start without it. Nothing outside the machine is
+# reachable, which is what the rule is actually about.
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "0.0.0.0", ""}
+
+
+def _is_loopback(address) -> bool:
+    if isinstance(address, tuple) and address:
+        host = address[0]
+    elif isinstance(address, str):
+        host = address
+    else:
+        return False
+    return host in LOOPBACK_HOSTS
+
+
 @pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
-    """Fail loudly if a test ever tries to open a socket."""
+    """Fail loudly if a test tries to reach anything off this machine."""
     import socket
 
-    def _blocked(*args, **kwargs):
+    real_connect = socket.socket.connect
+    real_create_connection = socket.create_connection
+
+    def guarded_connect(self, address, *args, **kwargs):
+        if _is_loopback(address):
+            return real_connect(self, address, *args, **kwargs)
         raise AssertionError(
-            "a test tried to use the network; give it a fixture or a fake instead"
+            f"a test tried to reach {address!r}; give it a fixture or a fake instead"
         )
 
-    monkeypatch.setattr(socket.socket, "connect", _blocked)
-    monkeypatch.setattr(socket, "create_connection", _blocked)
+    def guarded_create_connection(address, *args, **kwargs):
+        if _is_loopback(address):
+            return real_create_connection(address, *args, **kwargs)
+        raise AssertionError(
+            f"a test tried to reach {address!r}; give it a fixture or a fake instead"
+        )
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket, "create_connection", guarded_create_connection)

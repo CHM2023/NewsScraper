@@ -38,8 +38,15 @@ def get(
     timeout: float = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     headers: dict[str, str] | None = None,
+    allow_404: bool = False,
 ) -> requests.Response | None:
-    """GET with a timeout and bounded retries. Returns None if it never worked."""
+    """GET with a timeout and bounded retries. Returns None if it never worked.
+
+    ``allow_404`` marks a resource whose absence is expected rather than
+    broken - a publisher that has retired an endpoint. The 404 is then logged at
+    INFO and returns None quietly, instead of writing an error line on every
+    scheduled run for a condition nobody is going to fix.
+    """
     merged = {"User-Agent": USER_AGENT, "Accept": "*/*"}
     merged.update(headers or {})
 
@@ -60,6 +67,10 @@ def get(
             _sleep(attempt)
             continue
 
+        if response.status_code == 404 and allow_404:
+            log.info("GET %s is not published (404)", url)
+            return None
+
         if not response.ok:
             log.error("GET %s returned %d: %.200s", url, response.status_code, response.text)
             return None
@@ -77,11 +88,15 @@ def get_json(
     timeout: float = DEFAULT_TIMEOUT,
     retries: int = DEFAULT_RETRIES,
     headers: dict[str, str] | None = None,
+    allow_404: bool = False,
 ) -> Any | None:
     """GET and parse JSON. Returns None on network, HTTP or decode failure."""
     merged = {"Accept": "application/json"}
     merged.update(headers or {})
-    response = get(url, params=params, timeout=timeout, retries=retries, headers=merged)
+    response = get(
+        url, params=params, timeout=timeout, retries=retries, headers=merged,
+        allow_404=allow_404,
+    )
     if response is None:
         return None
     try:

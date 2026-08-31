@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Calendar - XAU/USD{% endblock %}
+{% block nav_calendar %}active{% endblock %}
+
+{% block head %}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.15/index.global.min.js"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+{% endblock %}
+
+{% block content %}
+  <h1>Calendar</h1>
+  <p class="legend muted">
+    <span class="swatch w5"></span> weight 5
+    <span class="swatch w4"></span> weight 4
+    <span class="swatch w-low"></span> weight 3 and below
+    &mdash; click an event for detail.
+  </p>
+
+  <div class="calendar-layout">
+    <div id="calendar"></div>
+
+    {# HTMX drops the event detail in here; the click handler below asks it to
+       load /events/<id>. #}
+    <aside id="event-panel" class="panel">
+      <p class="muted">Select an event.</p>
+    </aside>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var panel = document.getElementById('event-panel');
+
+      var calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+        initialView: 'dayGridMonth',
+        // The feed hands over UTC instants. Rendering in UTC keeps the grid
+        // consistent with the event ids, which are keyed on the UTC date.
+        timeZone: 'UTC',
+        firstDay: 1,
+        height: 'auto',
+        headerToolbar: {
+          left: 'prev,next today',
+          center: 'title',
+          right: 'dayGridMonth,dayGridWeek,listMonth'
+        },
+        eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+        events: function (info, success, failure) {
+          var url = '/api/events?start=' + encodeURIComponent(info.startStr) +
+                    '&end=' + encodeURIComponent(info.endStr);
+          fetch(url)
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+              // The API answers with a plain array normally, and with an object
+              // carrying a warning when the database is unreachable.
+              if (Array.isArray(data)) { success(data); return; }
+              var message = document.createElement('p');
+              message.className = 'banner warn';
+              message.textContent = data.warning || 'No events available.';
+              panel.replaceChildren(message);
+              success([]);
+            })
+            .catch(failure);
+        },
+        eventClick: function (info) {
+          info.jsEvent.preventDefault();
+          // Event ids contain a pipe, so they must be encoded into the path.
+          htmx.ajax('GET', '/events/' + encodeURIComponent(info.event.id),
+                    { target: '#event-panel', swap: 'innerHTML' });
+        }
+      });
+
+      calendar.render();
+    });
+  </script>
+{% endblock %}

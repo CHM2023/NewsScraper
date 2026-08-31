@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Today / This week - XAU/USD{% endblock %}
+{% block nav_today %}active{% endblock %}
+
+{% block content %}
+  <h1>Next {{ upcoming_days }} days</h1>
+
+  {# Refreshed by HTMX every five minutes. Everything that can go stale lives
+     inside the partial; the shell around it does not need to move. #}
+  <div id="today-panel"
+       hx-get="/partials/today"
+       hx-trigger="every 300s"
+       hx-swap="innerHTML">
+    {% include "partials/today_tables.html" %}
+  </div>
+{% endblock %}

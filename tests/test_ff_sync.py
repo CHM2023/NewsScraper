@@ -66,7 +66,7 @@ class TestCollect:
     def test_keeps_only_usd_rows(self, ff_thisweek, weights, monkeypatch):
         from common.stats import Stats
 
-        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url: list(ff_thisweek))
+        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url, **kw: list(ff_thisweek))
         stats = Stats("test")
         rows = ff_sync.collect(["one-feed"], weights, stats)
 
@@ -77,14 +77,14 @@ class TestCollect:
     def test_two_feeds_are_merged_and_deduplicated(self, ff_thisweek, weights, monkeypatch):
         from common.stats import Stats
 
-        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url: list(ff_thisweek))
+        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url, **kw: list(ff_thisweek))
         rows = ff_sync.collect(["a", "b"], weights, Stats("test"))
         assert len(rows) == 8, "the same release in both feeds must not double up"
 
     def test_an_unavailable_feed_is_counted_not_fatal(self, ff_thisweek, weights, monkeypatch):
         from common.stats import Stats
 
-        def flaky(url):
+        def flaky(url, **kwargs):
             return list(ff_thisweek) if url == "good" else None
 
         monkeypatch.setattr(ff_sync, "fetch_feed", flaky)
@@ -97,9 +97,73 @@ class TestCollect:
     def test_rows_come_back_sorted_by_id(self, ff_thisweek, weights, monkeypatch):
         from common.stats import Stats
 
-        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url: list(ff_thisweek))
+        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url, **kw: list(ff_thisweek))
         rows = ff_sync.collect(["one"], weights, Stats("test"))
         assert [r["id"] for r in rows] == sorted(r["id"] for r in rows)
+
+
+class TestFeeds:
+    """As of 2026-08-31 only the this-week feed is published. See decisions.md."""
+
+    def test_the_thisweek_feed_is_required(self):
+        thisweek = next(f for f in ff_sync.FEEDS if "thisweek" in f.url)
+        assert thisweek.required is True
+
+    def test_the_nextweek_feed_is_optional(self):
+        nextweek = next(f for f in ff_sync.FEEDS if "nextweek" in f.url)
+        assert nextweek.required is False
+
+    def test_a_missing_optional_feed_is_not_an_error(self, ff_thisweek, weights, monkeypatch):
+        from common.stats import Stats
+
+        def only_thisweek(url, **kwargs):
+            return list(ff_thisweek) if "thisweek" in url else None
+
+        monkeypatch.setattr(ff_sync, "fetch_feed", only_thisweek)
+        stats = Stats("test")
+        rows = ff_sync.collect(ff_sync.FEEDS, weights, stats)
+
+        assert len(rows) == 8, "the working feed must still be used"
+        assert stats.errors == 0, "an endpoint the publisher retired is not our error"
+        assert any("optional feed" in note for note in stats.notes)
+
+    def test_a_missing_required_feed_is_an_error(self, weights, monkeypatch):
+        from common.stats import Stats
+
+        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url, **kw: None)
+        stats = Stats("test")
+        ff_sync.collect(ff_sync.FEEDS, weights, stats)
+        assert stats.errors == 1
+
+    def test_optional_feeds_tolerate_a_404(self, monkeypatch):
+        """allow_404 is what keeps the hourly log free of a permanent error."""
+        captured = {}
+
+        def capture(url, **kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(ff_sync.http, "get_json", capture)
+        ff_sync.fetch_feed("http://example.test/x.json", required=False)
+        assert captured["allow_404"] is True
+
+        ff_sync.fetch_feed("http://example.test/x.json", required=True)
+        assert captured["allow_404"] is False
+
+    def test_a_plain_url_string_is_still_accepted(self, ff_thisweek, weights, monkeypatch):
+        from common.stats import Stats
+
+        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url, **kw: list(ff_thisweek))
+        assert len(ff_sync.collect(["http://example.test/x.json"], weights, Stats("t"))) == 8
+
+    def test_feed_name_is_the_basename(self):
+        assert ff_sync.Feed("https://host/path/ff_calendar_thisweek.json").name == (
+            "ff_calendar_thisweek.json"
+        )
+
+    def test_a_non_list_payload_is_rejected(self, monkeypatch):
+        monkeypatch.setattr(ff_sync.http, "get_json", lambda url, **kw: {"error": "nope"})
+        assert ff_sync.fetch_feed("http://example.test/x.json") is None
 
 
 class TestMessages:
@@ -214,7 +278,7 @@ class TestSerialise:
         """PostgREST requires uniform keys across one upsert batch."""
         from common.stats import Stats
 
-        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url: list(ff_thisweek))
+        monkeypatch.setattr(ff_sync, "fetch_feed", lambda url, **kw: list(ff_thisweek))
         rows = ff_sync.collect(["one"], weights, Stats("t"))
         keysets = {tuple(sorted(ff_sync._serialise(r))) for r in rows}
         assert len(keysets) == 1

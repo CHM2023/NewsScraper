@@ -145,3 +145,47 @@ minutes after any event of weight >= 4, surfaced as a banner on the "today" page
 Asymmetric because liquidity thins well before a print and returns sooner after
 it. Simultaneous releases report the heaviest event. **Rejected:** enforcing
 anything (the platform informs, it does not trade) and a symmetric window.
+
+## 2026-08-31 — VERIFIED LIVE: only `ff_calendar_thisweek.json` still exists
+Checked against the live host on 2026-08-31. `ff_calendar_thisweek.json` returns
+200 (112 entries, 27 USD rows). `ff_calendar_nextweek.json`, `_lastweek`,
+`_today` and `_tomorrow` all return **404**. The brief assumed a two-week
+forecast window; the real window is one week.
+**Chosen:** model a feed as `Feed(url, required=...)`. The this-week feed is
+required and its loss is an error; the next-week feed is kept in the list but
+optional, fetched with `allow_404=True`, so a 404 logs at INFO, does not count
+as an error, and the extra week is picked up automatically if the publisher ever
+restores it. **Rejected:** deleting the next-week URL (throws away a free
+upgrade), and leaving it required (an ERROR line on all 24 scheduled runs a day,
+which trains the owner to ignore the log).
+**Consequence:** `calendar_skeleton` is now the *only* source of dates beyond
+about a week, so it matters more than the brief implies. Forecasts simply do not
+exist past that horizon, and the UI shows "n/a" rather than implying none was
+published.
+
+## 2026-08-31 — VERIFIED LIVE: the FOMC parser works against the real page
+`fetch_decision_dates()` parsed 27 announcement dates from federalreserve.gov,
+2021 through 2027. All 16 dates in `FALLBACK_DECISION_DATES` (2026-2027) match
+the live page exactly, so the transcription is correct as of today. The parser
+returns historical years too; `calendar_skeleton` clips to its 12-month window.
+
+## 2026-08-31 — The web app degrades instead of returning 500
+Every database read in `web/app.py` goes through `_safe()`. **Chosen:** a missing
+credential or an unreachable Supabase renders an empty page with a specific,
+actionable banner; an unexpected error renders a generic one and logs the
+traceback server-side. `/api/events` answers 200 with `{"events": [], "warning":
+...}` rather than a non-2xx, because FullCalendar treats any non-2xx as a load
+failure and renders nothing at all. **Rejected:** letting the exception surface
+(the owner could not see the interface before the database existed, and a
+transient fault would show a stack trace), and putting the Postgres error text on
+the page.
+
+## 2026-08-31 — No local time is produced on the server, anywhere
+Templates emit `<time data-utc="...">` with empty content; `web/static/js/tz.js`
+fills it in from the browser's zone and keeps the UTC value in the `title`
+attribute. FullCalendar is configured `timeZone: 'UTC'` so its grid stays aligned
+with the event ids, which are keyed on the UTC date. A test asserts every
+`data-utc` the pages emit ends in `+00:00`. **Rejected:** a server-side timezone
+setting or an offset cookie - the concept doc names a daylight-saving mistake as
+the bug most likely to break things silently, and the defence is that the server
+has no opinion about the viewer's zone at all.

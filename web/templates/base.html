@@ -1,0 +1,41 @@
+{# Shared shell. No timestamp is ever formatted here - see static/js/tz.js. #}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Gold/USD news{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.12/htmx.min.js"
+          integrity="sha512-ScNzWr8QlXeOFAt5Q4rIrIzid7WgHIu5oIJAO4pR3IAmiCQjmk7SEDeIzkyE2vJa5hFOhVL8N1jTUYNqEIaiTQ=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <strong>XAU/USD</strong> <span class="muted">market news</span>
+    </div>
+    <nav>
+      <a href="/" class="{% block nav_today %}{% endblock %}">Today / This week</a>
+      <a href="/calendar" class="{% block nav_calendar %}{% endblock %}">Calendar</a>
+    </nav>
+    <div class="tzinfo muted">
+      times in <span id="tz-name">your local time</span>
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="muted">
+    <p>
+      Scheduled US macro releases weighted by their effect on gold. Stored in UTC;
+      shown in your browser's timezone. Informational only, not financial advice.
+    </p>
+  </footer>
+
+  <script src="/static/js/tz.js"></script>
+</body>
+</html>

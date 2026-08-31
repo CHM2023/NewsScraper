@@ -1,0 +1,82 @@
+{# Rendered both inside today.html and on its own for the HTMX refresh. #}
+
+{% if warning %}
+  <p class="banner warn">{{ warning }}</p>
+{% endif %}
+
+{% if blackout %}
+  <p class="banner {{ 'blackout-active' if blackout.active else 'blackout-soon' }}">
+    {% if blackout.active %}
+      <strong>Blackout now.</strong> {{ blackout.title }} (weight {{ blackout.weight }})
+      at <time data-utc="{{ blackout.ts_utc }}"></time> &mdash; spreads widen either
+      side of the print and the first move often reverses.
+    {% else %}
+      <strong>Next blackout</strong> in {{ blackout.minutes_until }} min:
+      {{ blackout.title }} (weight {{ blackout.weight }})
+      at <time data-utc="{{ blackout.ts_utc }}"></time>.
+    {% endif %}
+  </p>
+{% endif %}
+
+<p class="summary muted">
+  {{ summary.total }} scheduled release{% if summary.total != 1 %}s{% endif %},
+  {{ summary.high }} at weight 4 or above.
+  Last refreshed <time data-utc="{{ now_utc }}"></time>.
+</p>
+
+<section>
+  <h2>Upcoming</h2>
+  {% if upcoming %}
+    <table>
+      <thead>
+        <tr>
+          <th>When</th><th>Event</th><th>Weight</th>
+          <th class="num">Forecast</th><th class="num">Previous</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in upcoming %}
+          <tr>
+            <td><time data-utc="{{ event.ts_utc }}"></time></td>
+            <td><span class="event-title" title="{{ event.weight_label }}">{{ event.title }}</span></td>
+            <td><span class="badge {{ event.weight_class }}">{{ event.weight }}</span></td>
+            <td class="num">{{ event.forecast }}</td>
+            <td class="num">{{ event.previous }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty muted">
+      Nothing scheduled in the next {{ upcoming_days }} days, or no data loaded yet.
+      Run <code>python -m fetchers.ff_sync</code>.
+    </p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Recent releases</h2>
+  {% if recent %}
+    <table>
+      <thead>
+        <tr>
+          <th>When</th><th>Event</th>
+          <th class="num">Forecast</th><th class="num">Actual</th><th>Surprise</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in recent %}
+          <tr>
+            <td><time data-utc="{{ event.ts_utc }}"></time></td>
+            <td>{{ event.title }}</td>
+            <td class="num">{{ event.forecast }}</td>
+            <td class="num">{{ event.actual }}</td>
+            <td class="{{ event.surprise_class }}">{{ event.surprise }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="empty muted">No past releases stored yet.</p>
+  {% endif %}
+</section>

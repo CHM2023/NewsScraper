@@ -1,0 +1,37 @@
+{# Loaded by HTMX into #event-panel when a calendar event is clicked. #}
+{% if warning %}
+  <p class="banner warn">{{ warning }}</p>
+{% elif event %}
+  <h2 class="panel-title">{{ event.title }}</h2>
+  <p class="muted">
+    <span class="badge {{ event.weight_class }}">{{ event.weight }}</span>
+    {{ event.weight_label }}
+    &middot; <time data-utc="{{ event.ts_utc }}"></time>
+  </p>
+
+  <dl class="detail">
+    <dt>Previous</dt><dd>{{ event.previous }}</dd>
+    <dt>Forecast</dt><dd>{{ event.forecast }}</dd>
+    <dt>Actual</dt><dd>{{ event.actual }}</dd>
+    <dt>Surprise</dt><dd class="{{ event.surprise_class }}">{{ event.surprise }}</dd>
+    <dt>Fed regime</dt><dd>{{ event.regime }}</dd>
+    <dt>Impact (feed)</dt><dd>{{ event.impact }}</dd>
+    <dt>Source</dt><dd>{{ event.source }}</dd>
+  </dl>
+
+  <section class="reaction">
+    <h3>Historical reaction</h3>
+    {# STAGE 3: the event study fills this in. Once ten years of intraday gold
+       and release history are loaded, this section shows what gold did after
+       the last N occurrences of this event type, split by surprise and filtered
+       by the Fed regime above - distributions and a hit rate, never a single
+       averaged direction. See docs/gold-news-platform.md section 5. #}
+    <p class="muted empty">
+      Not available yet. This is where the Stage 3 event study will show what
+      gold did after previous releases of this type, conditioned on the surprise
+      and on the Fed regime.
+    </p>
+  </section>
+{% else %}
+  <p class="muted">No event found for <code>{{ event_id }}</code>.</p>
+{% endif %}

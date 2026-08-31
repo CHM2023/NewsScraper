@@ -1,7 +1,7 @@
-"""Step 4: this week's and next week's US releases from ForexFactory.
+"""Step 4: the current week's US releases from ForexFactory.
 
-This is the fetcher that produces notifications. It pulls the two weekly JSON
-feeds, keeps the USD rows, parses the display strings into numbers, and diffs
+This is the fetcher that produces notifications. It pulls the weekly JSON
+feed(s), keeps the USD rows, parses the display strings into numbers, and diffs
 the result against what is already stored:
 
 * an id that is not in the database  -> insert, and emit NEW
@@ -11,9 +11,11 @@ the result against what is already stored:
 Only weight >= 4 events produce a message, per the brief; lower-weight rows are
 still written, they just do not interrupt anyone.
 
-The feed is the authority on timing and consensus for the fortnight it covers,
-so rows written here are marked ``source='forexfactory'`` and calendar_skeleton
-will not overwrite them afterwards.
+The feed is the authority on timing and consensus for the week it covers, so
+rows written here are marked ``source='forexfactory'`` and calendar_skeleton
+will not overwrite them afterwards. Beyond that week the calendar is the
+skeleton's: as of 2026-08-31 the next-week feed 404s, so it is fetched as
+optional. See decisions.md.
 
 Run: ``python -m fetchers.ff_sync [--dry-run] [--quiet]``
 """
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 
 from common.logging_setup import configure_logging
@@ -35,9 +38,29 @@ from fetchers.titles import event_id, weight_for
 
 log = logging.getLogger("fetchers.ff_sync")
 
-FEEDS: tuple[str, ...] = (
-    "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
-    "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
+
+@dataclass(frozen=True)
+class Feed:
+    """A weekly feed, and whether its absence is a problem.
+
+    As of 2026-08-31 only ff_calendar_thisweek.json is published;
+    ff_calendar_nextweek.json (and lastweek, today, tomorrow) all return 404.
+    The next-week feed is kept but marked optional, so it is picked up for free
+    if the publisher restores it, and its absence does not write an error line
+    on all 24 scheduled runs a day. See decisions.md.
+    """
+
+    url: str
+    required: bool = True
+
+    @property
+    def name(self) -> str:
+        return self.url.rsplit("/", 1)[-1]
+
+
+FEEDS: tuple[Feed, ...] = (
+    Feed("https://nfs.faireconomy.media/ff_calendar_thisweek.json", required=True),
+    Feed("https://nfs.faireconomy.media/ff_calendar_nextweek.json", required=False),
 )
 
 COUNTRY = "USD"
@@ -55,9 +78,9 @@ WRITE_COLUMNS = (
 )
 
 
-def fetch_feed(url: str) -> list[dict] | None:
+def fetch_feed(url: str, *, required: bool = True) -> list[dict] | None:
     """One weekly feed, or None if it could not be fetched or was not a list."""
-    payload = http.get_json(url, timeout=20.0)
+    payload = http.get_json(url, timeout=20.0, allow_404=not required)
     if payload is None:
         return None
     if not isinstance(payload, list):
@@ -103,14 +126,21 @@ def parse_entry(entry: dict, weights: dict[str, int]) -> dict | None:
     }
 
 
-def collect(feeds: Iterable[str], weights: dict[str, int], stats: Stats) -> list[dict]:
-    """Fetch every feed and return the parsed USD rows, newest feed winning."""
+def collect(
+    feeds: Iterable[Feed | str], weights: dict[str, int], stats: Stats
+) -> list[dict]:
+    """Fetch every feed and return the parsed USD rows, later feeds winning."""
     rows: dict[str, dict] = {}
-    for url in feeds:
-        entries = fetch_feed(url)
+    for feed in feeds:
+        feed = feed if isinstance(feed, Feed) else Feed(feed)
+        url = feed.url
+        entries = fetch_feed(url, required=feed.required)
         if entries is None:
-            stats.errors += 1
-            stats.note(f"feed unavailable: {url}")
+            if feed.required:
+                stats.errors += 1
+                stats.note(f"feed unavailable: {url}")
+            else:
+                stats.note(f"optional feed not published: {feed.name}")
             continue
         stats.fetched += len(entries)
         kept = 0
@@ -125,7 +155,7 @@ def collect(feeds: Iterable[str], weights: dict[str, int], stats: Stats) -> list
                 continue
             rows[row["id"]] = row
             kept += 1
-        log.info("%s: %d entries, %d USD rows kept", url.rsplit("/", 1)[-1], len(entries), kept)
+        log.info("%s: %d entries, %d USD rows kept", feed.name, len(entries), kept)
     return [rows[k] for k in sorted(rows)]
 
 
@@ -180,7 +210,7 @@ def announce(result: DiffResult, stats: Stats, *, quiet: bool = False) -> None:
 
 
 def sync(*, dry_run: bool = False, quiet: bool = False) -> Stats:
-    """Fetch both feeds, diff against the database, write and notify."""
+    """Fetch the feeds, diff against the database, write and notify."""
     stats = Stats("ff_sync")
 
     weights = repo.fetch_event_weights()
