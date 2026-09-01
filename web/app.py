@@ -140,18 +140,20 @@ def api_events(
         # FullCalendar treats a non-2xx as a load failure and shows nothing; an
         # empty list with a note lets the page stay usable.
         return JSONResponse({"events": [], "warning": warning})
-    return JSONResponse(presenters.calendar_events(rows))
+    short_titles, _ = _safe(repo.fetch_short_titles, {})
+    return JSONResponse(presenters.calendar_events(rows, short_titles))
 
 
 @app.get("/events/{event_id:path}", response_class=HTMLResponse)
 def event_detail(request: Request, event_id: str):
     """The panel HTMX loads when a calendar event is clicked."""
     row, warning = _safe(lambda: repo.fetch_event(event_id), None)
+    short_titles, _ = _safe(repo.fetch_short_titles, {}) if row else ({}, None)
     return templates.TemplateResponse(
         request,
         "partials/event_detail.html",
         {
-            "event": presenters.event_view(row) if row else None,
+            "event": presenters.event_view(row, short_titles) if row else None,
             "event_id": event_id,
             "warning": warning,
         },

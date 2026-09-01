@@ -496,3 +496,47 @@ has a series spec or a recorded reason it cannot.
 Verified: 26 actuals filled for the new titles, each from its own series, and
 Core CPI for the 12 Aug release cross-checks exactly against `CPILFESL`
 (+0.2154, July over June - the reference-month rule holding for the new rows).
+
+## 2026-09-01 — Calendar UI: the grid, not the sidebar, is the page
+Every symptom had the same root: the month grid was being asked to fit full feed
+titles into roughly 90px, inside 1100px of page, next to a 320px panel that was
+empty until something was clicked.
+**Chosen, in order of how much each fixed:**
+- **`short_title` on `event_weights`** (`sql/002_short_title.sql`), nullable, with
+  the full title as the fallback. "Non-Farm Employment Change" -> "NFP",
+  "Core PCE Price Index m/m" -> "Core PCE", "FOMC Economic Projections" ->
+  "Dot Plot". Read by `repo.fetch_short_titles`, which returns `{}` rather than
+  raising if the migration has not been applied, so the calendar degrades to
+  full titles instead of breaking.
+- **Weight-1 hidden by default**, with a remembered toggle. They outnumber the
+  rows that move gold about four to one; 1 September went from ten rows to two.
+- **`dayMaxEvents: 5` plus `eventOrder: '-weight,start,title'`.** Ordering
+  chronologically is the obvious choice and it was wrong here: on 16 September it
+  put Retail Sales above the FOMC statement and pushed two weight-5 rows into
+  "+2 more" - precisely the "low-value rows crowd out the ones that matter"
+  complaint. Heaviest first, chronological within a weight; the time is on every
+  chip so the day still reads.
+- **The detail panel moved below the grid** and is `hidden` until an event is
+  clicked, and `main.wide` takes the calendar to 1500px.
+- **Chips are neutral, colour lives in the dot.** FullCalendar applies the feed's
+  `backgroundColor` as an *inline* style, so this needs `!important`. A solid
+  colour block per event made the month shout, and left grey time text on a grey
+  chip. Weight 5 and 4 are also bold, and the legend now says what a weight
+  means in words.
+- **`listMonth` below 700px**, where a seven-column grid is unreadable.
+- Detail panel shows UTC and local side by side - the left cell is the raw
+  instant, the right a `data-utc` stamp tz.js fills. The server still formats no
+  local time. The Stage 3 "Historical reaction" slot is untouched.
+`short_title_for` falls back through `titles.resolve_alias` exactly as
+`weight_for` does, so the per-speaker feed titles ("FOMC Member Waller Speaks")
+that are not in `event_weights` still pick up the seeded short form.
+
+**BLOCKED, needs the owner: `sql/002_short_title.sql` has not been applied.**
+`DATABASE_URL` is not set - the first line of `.env` is a mangled comment
+(`####ConnectionStringdb...`) rather than an assignment - and the connection
+string inside it points at `db.<ref>.supabase.co`, which now resolves **IPv6
+only**; this machine has no IPv6 route, so `psycopg` times out. Same constraint
+that made `001` a paste-into-the-SQL-editor job. Verified the rendering by
+serving the app with the migration's 27 values injected: every title fits.
+Until it is applied the calendar shows full titles, ellipsised with the full
+text on hover.

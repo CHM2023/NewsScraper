@@ -26,6 +26,10 @@ body {
 }
 
 main { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+/* The calendar needs every pixel it can get: a month grid divided into seven
+   columns has about 90px per event at 1100px wide, which is what was slicing
+   titles mid-word. */
+main.wide { max-width: 1500px; }
 
 h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 h2 { font-size: 1.05rem; margin: 1.75rem 0 0.5rem; }
@@ -139,27 +143,126 @@ time { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .summary { margin: 0 0 1rem; font-size: 0.9rem; }
 
 /* ---------- calendar ---------- */
-.calendar-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 1.25rem;
-  align-items: start;
+.calendar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
+.calendar-head h1 { margin-bottom: 0.5rem; }
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input { cursor: pointer; }
+
 #calendar {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.75rem;
 }
+
+/* The detail panel sits below the calendar and only exists once something is
+   selected - it used to be a permanently empty 320px column. */
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 0.9rem;
-  position: sticky;
-  top: 1rem;
+  padding: 1rem 1.1rem;
+  margin-top: 1.25rem;
 }
-.panel-title { margin: 0 0 0.3rem; font-size: 1.05rem; }
+.panel-title {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.panel-title .weight-label { font-size: 0.85rem; font-weight: 400; }
+
+.clocks {
+  display: flex;
+  gap: 2.5rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0.8rem;
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.clock-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.clock-value { font-variant-numeric: tabular-nums; font-size: 0.95rem; }
+
+/* ---------- calendar event chips ---------- */
+/* Nothing here relies on the cell being wide enough: the title ellipsises
+   cleanly and the full one is in the element's title attribute, while
+   dayMaxEvents keeps a busy day from growing past four rows. */
+.evt {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.05rem 0.1rem;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+.evt-dot {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+}
+.evt-time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.evt-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Weight 5 and 4 read as bold so they are findable when scanning a month. */
+.evt.w5 .evt-title, .evt.w4 .evt-title { font-weight: 700; }
+.evt.w5 .evt-title { color: var(--w5); }
+.evt.w4 .evt-title { color: var(--w4); }
+
+/* FullCalendar's own chrome. The feed still sends backgroundColor - the JSON
+   contract and the tests depend on it - but FullCalendar applies it as an
+   *inline* style, so overriding it needs !important. A solid colour block per
+   event made the whole month shout and left grey time text on a grey chip;
+   the weight now reads from the dot, and the row stays legible. */
+.fc .fc-daygrid-event {
+  background: transparent !important;
+  border-color: transparent !important;
+  padding: 0;
+  margin-top: 1px;
+}
+.fc .fc-daygrid-event .fc-event-main { color: var(--ink); }
+.fc .fc-daygrid-event:hover { background: #eef1f5; border-radius: 3px; }
+.fc .fc-more { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.fc .fc-daygrid-day.fc-day-today { background: #fffdf5; }
+.fc .fc-popover { z-index: 20; }
+.fc .fc-popover-body .evt-title { white-space: normal; overflow: visible; }
+.fc .fc-list-event .evt-title { white-space: normal; overflow: visible; }
+/* The list view draws its own dot; ours already carries the weight colour. */
+.fc .fc-list-event-dot { display: none; }
+.fc .fc-list-event-graphic { width: 0; padding: 0; }
 
 .detail {
   display: grid;
@@ -185,7 +288,13 @@ footer {
 }
 
 @media (max-width: 820px) {
-  .calendar-layout { grid-template-columns: 1fr; }
-  .panel { position: static; }
   .topbar .tzinfo { margin-left: 0; width: 100%; }
+}
+
+@media (max-width: 700px) {
+  /* The month grid defaults to listMonth at this width (see calendar.html),
+     where titles have the full row and never need to ellipsise. */
+  .clocks { gap: 1.25rem; }
+  .legend .swatch { margin-left: 0; }
+  .legend { line-height: 2; }
 }

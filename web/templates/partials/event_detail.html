@@ -2,12 +2,25 @@
 {% if warning %}
   <p class="banner warn">{{ warning }}</p>
 {% elif event %}
-  <h2 class="panel-title">{{ event.title }}</h2>
-  <p class="muted">
+  <h2 class="panel-title">
+    {{ event.title }}
     <span class="badge {{ event.weight_class }}">{{ event.weight }}</span>
-    {{ event.weight_label }}
-    &middot; <time data-utc="{{ event.ts_utc }}"></time>
-  </p>
+    <span class="muted weight-label">{{ event.weight_label }}</span>
+  </h2>
+
+  {# Both clocks, side by side. The server still emits nothing but UTC: the
+     left cell is the raw instant and the right one is a data-utc stamp that
+     tz.js converts in the browser. #}
+  <div class="clocks">
+    <div>
+      <span class="clock-label muted">UTC</span>
+      <span class="clock-value">{{ event.ts_utc }}</span>
+    </div>
+    <div>
+      <span class="clock-label muted">Your time</span>
+      <time class="clock-value" data-utc="{{ event.ts_utc }}"></time>
+    </div>
+  </div>
 
   <dl class="detail">
     <dt>Previous</dt><dd>{{ event.previous }}</dd>

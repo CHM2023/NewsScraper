@@ -19,6 +19,7 @@ from typing import Any, Iterable, Sequence
 
 from common.timeutil import UTC, iso_utc, iso_z, parse_iso
 from fetchers.surprise import describe as describe_surprise
+from fetchers.titles import resolve_alias
 
 # Concept doc 3.3: red 5, orange 4, grey 3 and below.
 WEIGHT_COLOURS: dict[int, str] = {5: "#c0392b", 4: "#e67e22"}
@@ -105,16 +106,42 @@ def surprise_class(value: Any) -> str:
     return "s-flat"
 
 
-def event_view(row: dict) -> dict:
+def short_title_for(title: str, short_titles: dict[str, str] | None) -> str:
+    """The calendar abbreviation for a title, or the title itself.
+
+    Falls back the same way ``titles.weight_for`` does: exact match first, then
+    the alias table, so "FOMC Member Waller Speaks" - a per-speaker feed title
+    that is not in event_weights - picks up the short form seeded against
+    "FOMC Member Speaks". The full title stays on the chip's hover.
+
+    Falling back finally to the full title rather than to an empty string means
+    a row the owner added by hand, or a database without
+    sql/002_short_title.sql applied, renders something readable rather than a
+    blank chip.
+    """
+    if not short_titles:
+        return title
+    key = title.strip().lower()
+    if key in short_titles:
+        return short_titles[key]
+    alias = resolve_alias(title)
+    if alias:
+        return short_titles.get(alias.strip().lower()) or title
+    return title
+
+
+def event_view(row: dict, short_titles: dict[str, str] | None = None) -> dict:
     """One event as the templates want it."""
     ts = row.get("ts_utc")
     ts = ts if isinstance(ts, datetime) else parse_iso(ts, field="events.ts_utc")
     weight = int(row.get("weight") or 1)
     surprise = row.get("surprise")
 
+    title = row.get("title", "")
     return {
         "id": row.get("id", ""),
-        "title": row.get("title", ""),
+        "title": title,
+        "short_title": short_title_for(title, short_titles),
         "country": row.get("country", "USD"),
         # The only representation of time the server emits.
         "ts_utc": iso_utc(ts, field="events.ts_utc"),
@@ -134,13 +161,15 @@ def event_view(row: dict) -> dict:
     }
 
 
-def event_views(rows: Iterable[dict]) -> list[dict]:
-    return [event_view(row) for row in rows]
+def event_views(
+    rows: Iterable[dict], short_titles: dict[str, str] | None = None
+) -> list[dict]:
+    return [event_view(row, short_titles) for row in rows]
 
 
-def calendar_event(row: dict) -> dict:
+def calendar_event(row: dict, short_titles: dict[str, str] | None = None) -> dict:
     """One event in the shape FullCalendar's JSON feed expects."""
-    view = event_view(row)
+    view = event_view(row, short_titles)
     return {
         "id": view["id"],
         "title": view["title"],
@@ -154,6 +183,11 @@ def calendar_event(row: dict) -> dict:
         "borderColor": view["weight_colour"],
         "extendedProps": {
             "weight": view["weight"],
+            # The chip renders the short form and keeps the full one for the
+            # hover title, so nothing is ever cut off with no way to read it.
+            "shortTitle": view["short_title"],
+            "fullTitle": view["title"],
+            "weightClass": view["weight_class"],
             "forecast": view["forecast"],
             "previous": view["previous"],
             "actual": view["actual"],
@@ -163,8 +197,10 @@ def calendar_event(row: dict) -> dict:
     }
 
 
-def calendar_events(rows: Iterable[dict]) -> list[dict]:
-    return [calendar_event(row) for row in rows]
+def calendar_events(
+    rows: Iterable[dict], short_titles: dict[str, str] | None = None
+) -> list[dict]:
+    return [calendar_event(row, short_titles) for row in rows]
 
 
 def parse_range_param(value: str, *, field: str) -> datetime:

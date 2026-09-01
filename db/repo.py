@@ -76,6 +76,31 @@ def fetch_event_weights(client: Any | None = None) -> dict[str, int]:
     return {r["title"].strip().lower(): int(r["weight"]) for r in rows}
 
 
+def fetch_short_titles(client: Any | None = None) -> dict[str, str]:
+    """Calendar abbreviations, keyed by lowercased title.
+
+    Returns ``{}`` rather than raising when ``sql/002_short_title.sql`` has not
+    been applied yet: the column is an display nicety, and the calendar falls
+    back to the full title without it. Titles with a null short form are left
+    out for the same reason.
+    """
+    try:
+        rows = _fetch_paged(
+            lambda: _t(EVENT_WEIGHTS, client).select("title, short_title").order("title")
+        )
+    except Exception as exc:
+        log.warning(
+            "short_title unavailable (%s); calendar will use full titles. "
+            "Apply sql/002_short_title.sql to enable it.", type(exc).__name__
+        )
+        return {}
+    return {
+        r["title"].strip().lower(): r["short_title"]
+        for r in rows
+        if r.get("short_title")
+    }
+
+
 # ---------------------------------------------------------------------------
 # events - reads
 # ---------------------------------------------------------------------------

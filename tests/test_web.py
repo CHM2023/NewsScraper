@@ -62,6 +62,10 @@ def stocked(monkeypatch):
         lambda event_id, **kw: past if event_id == past["id"] else None,
     )
     monkeypatch.setattr(web_app.repo, "fetch_event_weights", lambda **kw: {"cpi m/m": 5})
+    monkeypatch.setattr(
+        web_app.repo, "fetch_short_titles",
+        lambda **kw: {"non-farm employment change": "NFP"},
+    )
     return {"upcoming": upcoming, "past": past}
 
 
@@ -74,7 +78,7 @@ def unconfigured(monkeypatch):
 
     for name in (
         "fetch_events_between", "fetch_recent_releases", "fetch_event",
-        "fetch_event_weights",
+        "fetch_event_weights", "fetch_short_titles",
     ):
         monkeypatch.setattr(web_app.repo, name, missing)
 
@@ -177,9 +181,19 @@ class TestCalendarPage:
         assert "timeZone: 'local'" in body
         assert "timeZone: 'UTC'" not in body
 
-    def test_it_has_the_weight_legend(self, client, stocked):
+    def test_the_legend_explains_the_weights_in_words(self, client, stocked):
+        """"weight 5" alone told the reader nothing about what 5 means."""
         body = client.get("/calendar").text
-        assert "weight 5" in body and "weight 4" in body
+        assert "biggest gold movers" in body
+        assert "major, tradeable" in body
+
+    def test_it_hides_low_impact_events_by_default(self, client, stocked):
+        body = client.get("/calendar").text
+        assert 'id="show-low"' in body
+        assert "showLow" in body
+
+    def test_it_collapses_busy_days(self, client, stocked):
+        assert "dayMaxEvents" in client.get("/calendar").text
 
     def test_it_has_a_panel_for_the_detail(self, client, stocked):
         assert 'id="event-panel"' in client.get("/calendar").text

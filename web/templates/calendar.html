@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Calendar - XAU/USD{% endblock %}
 {% block nav_calendar %}active{% endblock %}
+{% block main_class %}wide{% endblock %}
 
 {% block head %}
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.15/index.global.min.js"
@@ -8,30 +9,47 @@
 {% endblock %}
 
 {% block content %}
-  <h1>Calendar</h1>
+  <div class="calendar-head">
+    <h1>Calendar</h1>
+    <label class="toggle">
+      <input type="checkbox" id="show-low"> show low-impact
+    </label>
+  </div>
+
   <p class="legend muted">
-    <span class="swatch w5"></span> weight 5
-    <span class="swatch w4"></span> weight 4
-    <span class="swatch w-low"></span> weight 3 and below
+    <span class="swatch w5"></span> 5 = biggest gold movers (CPI, Core PCE, Fed decisions)
+    <span class="swatch w4"></span> 4 = major, tradeable (payrolls, chair testimony)
+    <span class="swatch w-low"></span> 3 and below = context
     &mdash; click an event for detail.
   </p>
 
-  <div class="calendar-layout">
-    <div id="calendar"></div>
+  <div id="calendar"></div>
 
-    {# HTMX drops the event detail in here; the click handler below asks it to
-       load /events/<id>. #}
-    <aside id="event-panel" class="panel">
-      <p class="muted">Select an event.</p>
-    </aside>
-  </div>
+  {# HTMX drops the event detail in here. It sits below the calendar rather
+     than in a side column: an empty "Select an event." box was taking a
+     quarter of the screen and the grid needs the full width. #}
+  <aside id="event-panel" class="panel" hidden></aside>
 
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       var panel = document.getElementById('event-panel');
+      var toggle = document.getElementById('show-low');
+      var STORAGE_KEY = 'xau.showLowImpact';
+
+      // Weight-1 rows (crude oil inventories, vehicle sales, the API bulletin)
+      // outnumber the ones that move gold about four to one, and on a busy day
+      // they pushed the weight-5 row out of sight. Hidden by default; the
+      // choice is remembered so it does not have to be made every visit.
+      var showLow = false;
+      try { showLow = localStorage.getItem(STORAGE_KEY) === '1'; } catch (err) { showLow = false; }
+      toggle.checked = showLow;
+
+      // Month is the right default on a desktop, but at phone width a month
+      // grid is unreadable - the list view was clearly better in testing.
+      var narrow = window.matchMedia('(max-width: 700px)').matches;
 
       var calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
-        initialView: 'dayGridMonth',
+        initialView: narrow ? 'listMonth' : 'dayGridMonth',
         // The feed hands over UTC instants ending in Z; 'local' makes
         // FullCalendar convert them to the viewer's zone, which is what the
         // header promises and what tz.js does everywhere else on the site.
@@ -40,12 +58,68 @@
         timeZone: 'local',
         firstDay: 1,
         height: 'auto',
+        // Collapse a busy day into "+N more" rather than letting it grow a
+        // ten-row column that squeezes every other week of the month. Five
+        // fits a full Fed decision day (statement, rate, projections, press
+        // conference) plus one.
+        dayMaxEvents: 5,
+        // Heaviest first, then chronological within a weight. Purely
+        // chronological ordering put Retail Sales above the FOMC statement on
+        // 16 September and pushed the two weight-5 rows into "+2 more" - the
+        // low-value rows crowding out the ones that matter, which is the whole
+        // complaint. The time is on every chip, so the day still reads.
+        eventOrder: '-weight,start,title',
+        moreLinkClassNames: 'fc-more',
         headerToolbar: {
           left: 'prev,next today',
           center: 'title',
           right: 'dayGridMonth,dayGridWeek,listMonth'
         },
         eventTimeFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+        eventDisplay: 'block',
+
+        // A weight dot, the time, and the short title - never the raw feed
+        // title, which is what used to be sliced mid-word by the cell.
+        eventContent: function (arg) {
+          var props = arg.event.extendedProps || {};
+          var wrap = document.createElement('div');
+          wrap.className = 'evt w' + (props.weight || 1);
+
+          var dot = document.createElement('span');
+          dot.className = 'evt-dot';
+          dot.style.backgroundColor = arg.event.backgroundColor;
+          wrap.appendChild(dot);
+
+          if (arg.timeText) {
+            var time = document.createElement('span');
+            time.className = 'evt-time';
+            time.textContent = arg.timeText;
+            wrap.appendChild(time);
+          }
+
+          var name = document.createElement('span');
+          name.className = 'evt-title';
+          name.textContent = props.shortTitle || arg.event.title;
+          wrap.appendChild(name);
+
+          return { domNodes: [wrap] };
+        },
+
+        // The UTC instant and the untruncated title stay one hover away, so a
+        // mismatch against a broker platform showing exchange time is visible
+        // rather than silent - and a regression that stopped converting would
+        // be obvious here.
+        eventDidMount: function (info) {
+          var props = info.event.extendedProps || {};
+          var utc = info.event.start ? info.event.start.toISOString() : '';
+          var full = props.fullTitle || info.event.title;
+          info.el.setAttribute(
+            'title',
+            full + (props.weight ? ' (weight ' + props.weight + ')' : '') +
+            (utc ? '\n' + utc + ' (UTC)' : '')
+          );
+        },
+
         events: function (info, success, failure) {
           var url = '/api/events?start=' + encodeURIComponent(info.startStr) +
                     '&end=' + encodeURIComponent(info.endStr);
@@ -54,28 +128,36 @@
             .then(function (data) {
               // The API answers with a plain array normally, and with an object
               // carrying a warning when the database is unreachable.
-              if (Array.isArray(data)) { success(data); return; }
-              var message = document.createElement('p');
-              message.className = 'banner warn';
-              message.textContent = data.warning || 'No events available.';
-              panel.replaceChildren(message);
-              success([]);
+              if (!Array.isArray(data)) {
+                var message = document.createElement('p');
+                message.className = 'banner warn';
+                message.textContent = data.warning || 'No events available.';
+                panel.replaceChildren(message);
+                panel.hidden = false;
+                success([]);
+                return;
+              }
+              success(showLow ? data : data.filter(function (e) {
+                return (e.extendedProps && e.extendedProps.weight || 1) > 1;
+              }));
             })
             .catch(failure);
         },
-        // The UTC instant stays one hover away, so a mismatch against a broker
-        // platform showing exchange time is visible rather than silent - and a
-        // regression that stopped converting would be obvious here.
-        eventDidMount: function (info) {
-          var utc = info.event.start ? info.event.start.toISOString() : '';
-          info.el.setAttribute('title', info.event.title + (utc ? ' - ' + utc + ' (UTC)' : ''));
-        },
+
         eventClick: function (info) {
           info.jsEvent.preventDefault();
+          panel.hidden = false;
           // Event ids contain a pipe, so they must be encoded into the path.
           htmx.ajax('GET', '/events/' + encodeURIComponent(info.event.id),
-                    { target: '#event-panel', swap: 'innerHTML' });
+                    { target: '#event-panel', swap: 'innerHTML' })
+              .then(function () { panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
         }
+      });
+
+      toggle.addEventListener('change', function () {
+        showLow = toggle.checked;
+        try { localStorage.setItem(STORAGE_KEY, showLow ? '1' : '0'); } catch (err) { /* private mode */ }
+        calendar.refetchEvents();
       });
 
       calendar.render();
