@@ -36,14 +36,14 @@ app only reads.
 | `fetchers/http.py` | Every outbound HTTP call. Timeout, retries, `allow_404`. |
 | `fetchers/fred.py` | Shared FRED observation client. |
 | `fetchers/parsing.py` | Pure: `"250K"` -> `250000.0`, forecast/previous strings. |
-| `fetchers/titles.py` | Pure: canonical event titles + weight lookup. |
+| `fetchers/titles.py` | Pure: canonical titles, weight lookup, and the release -> titles fan-out. |
 | `fetchers/diff.py` | Pure: incoming vs stored -> NEW / CHANGED / unchanged. |
 | `fetchers/surprise.py` | Pure: `(actual-forecast)/abs(forecast)*10`, clamped. |
 | `fetchers/regime.py` | Pure: 90-day Fed funds direction -> hiking/holding/cutting. |
 | `fetchers/blackout.py` | Pure: high-weight event windows to stay out of. |
 | `fetchers/release_times.py` | Pure: standing ET release times -> UTC, via the real IANA zone. |
 | `fetchers/series_map.py` | Title -> FRED series id + transform, for actuals. |
-| `fetchers/fomc.py` | FOMC calendar parsing + a verified fallback date table. |
+| `fetchers/fomc.py` | FOMC calendar parsing (incl. the SEP asterisk) + a verified fallback date table. |
 | `fetchers/calendar_skeleton.py` | Step 3: release dates as far ahead as FRED publishes them (~4 months, not 12) plus `--months-back` for history. |
 | `fetchers/ff_sync.py` | Step 4: weekly forecasts, diff, notify. One week, see below. |
 | `fetchers/notify.py` | Step 5: `send(message)` -> Telegram + notifications_log. |
@@ -53,9 +53,10 @@ app only reads.
 | `web/app.py` | FastAPI routes. Read-only; every read degrades, never 500s. |
 | `web/presenters.py` | Pure: rows -> view models. Colours, formatting, no local time. |
 | `web/templates/` | Jinja2. Emits `data-utc`; never formats local time. |
-| `web/static/js/tz.js` | The only place UTC becomes local time. |
+| `web/static/js/tz.js` | Converts every `data-utc` stamp. FullCalendar converts its own feed (`timeZone: 'local'`). |
 | `web/static/css/app.css` | Hand-written; no framework in this slice. |
 | `sql/001_init.sql` | Schema + `event_weights` seed. Run by hand in Supabase. |
+| `sql/002_short_title.sql` | Adds `event_weights.short_title` + 27 calendar abbreviations. **Not yet applied** - see `next-steps.md`. |
 | `tests/fixtures/` | Captured API responses. Tests never hit the network. |
 
 The split between pure modules and I/O modules is deliberate: everything with
@@ -69,7 +70,7 @@ tested against fixtures, and the fetchers are thin wiring around them.
 | `GET /` | Today / this week. Next 7 days plus the last 10 releases. |
 | `GET /partials/today` | The same tables alone; HTMX polls this every 300s. |
 | `GET /calendar` | FullCalendar month view. |
-| `GET /api/events?start=&end=` | JSON feed for FullCalendar. Max 400 days. |
+| `GET /api/events?start=&end=` | JSON feed for FullCalendar. Max 400 days. `start` ends in `Z`. |
 | `GET /events/{id}` | HTMX detail panel, including the Stage 3 slot. |
 | `GET /health` | Liveness plus whether Supabase is reachable. |
 
@@ -129,3 +130,24 @@ Verified against the live sources on 2026-08-31. Reasoning is in `decisions.md`.
 
 Console and log strings are kept ASCII-only: the Windows console is cp1252 and
 turns an em dash into `?`.
+
+## Time on the two pages
+
+Both pages convert in the browser and neither formats a local time on the
+server, but they do it by different routes, which is where the 2026-09-01 bug
+lived:
+
+| Page | Server emits | Converted by |
+|---|---|---|
+| `/` and the partials | `<time data-utc="...+00:00">`, empty text | `web/static/js/tz.js` |
+| `/calendar` | `/api/events` `start` as `...Z` | FullCalendar, `timeZone: 'local'` |
+
+The `Z` is load-bearing: a JavaScript `Date` reads an instant with no offset as
+*local*, which would shift every release by the viewer's offset silently.
+`timeutil.iso_z` exists for that feed alone; `iso_utc` still produces `+00:00`
+everywhere else, so nothing stored has to change.
+
+Testing a browser timezone needs Chrome DevTools' `Emulation.setTimezoneOverride`
+over CDP. The `TZ` environment variable does **not** work on Windows - Chrome
+reads the OS zone, so a `TZ=`-prefixed run silently re-tests the same zone and
+looks like a pass.

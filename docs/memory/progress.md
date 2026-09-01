@@ -6,14 +6,14 @@ Status values: todo / in progress / done / blocked.
 |---|------|--------|-------------|------|
 | 1 | Project skeleton | done | Pushed to origin main; remote head 7cf8744 matches local | none |
 | 2 | Supabase schema | done, VERIFIED LIVE | 5 tables reachable over PostgREST; event_weights = 27 rows | Applied by hand in the SQL editor, not via scripts/apply_schema.py |
-| 3 | Annual calendar skeleton | done, VERIFIED LIVE | 46 rows written from live FRED+Fed; times correct (NFP 12:30Z, FOMC 18:00Z) | FRED only publishes release dates to year end - 4 months, not 12 |
+| 3 | Annual calendar skeleton | done, VERIFIED LIVE | 181 rows. One FRED release fans out into every print it carries (CPI day = m/m + y/y + core); a Fed decision day = statement, rate, projections and press conference, EDT/EST correct | FRED only publishes release dates to year end - 4 months, not 12 |
 | 4 | ForexFactory weekly sync + diff | done, VERIFIED LIVE | 27 USD rows; 25 new + 2 merged onto skeleton rows; zero duplicate (date,title) pairs | next-week feed still 404, so forecasts cover ~1 week |
 | 5 | Telegram notifications + reminders | done, TESTED ONLY | 35 tests; send never raises, reminders fire once. Both fetchers ran live in Actions and degraded cleanly: `telegram not configured: reported due reminders, flagged none` | **No message has ever been delivered.** Credentials are unset by instruction, so the whole delivery path is unexercised |
 | 6 | Actuals from FRED + surprise | done, VERIFIED LIVE | 39 historical events filled; CPI/PPI/NFP/PCE cross-checked against raw FRED; surprise wiring verified | No consensus history, so surprise is null for backfilled events |
 | 7 | Daily prices + 10y backfill + regime | done, VERIFIED LIVE | 3651 price rows 2016-2026, 2512 gold closes; regimes correct across history | gold depends solely on yfinance GC=F; dxy is the Fed broad index |
 | 8 | GitHub Actions workflows | done, VERIFIED LIVE | All four dispatched and green on real secrets - see the run table below | Telegram steps run but cannot deliver; `actions/checkout@v4` + `setup-python@v5` warn that Node 20 is deprecated |
-| 9 | Web: Today / This week | done, VERIFIED LIVE | Served real Supabase rows: /health reports `database: ok`, / renders real release titles with data-utc stamps, /api/events returns 35 September events with the right weight colours | Event detail is not linked from the today table |
-| 10 | Web: Calendar + event detail | done, VERIFIED LIVE | /calendar renders live rows in UTC; /events/USD%7CCPI%20m%2Fm%7C2026-08-12 shows actual 0.07 and regime holding | Event detail is reachable from the calendar only, not from the today table |
+| 9 | Web: Today / This week | done, VERIFIED LIVE | Served real Supabase rows: /health reports `database: ok`, / renders real titles with data-utc stamps that tz.js converts | Event detail is not linked from the today table |
+| 10 | Web: Calendar + event detail | done, VERIFIED LIVE | Times convert in the browser - NFP reads 15:30 Beirut / 22:30 Sydney / 12:30 UTC, checked over CDP. Low-impact toggle filters 24->48 and persists; listMonth below 700px; detail shows both clocks | `short_title` needs sql/002 applied, so titles ellipsise until then |
 
 ## Workflow runs verified live
 
@@ -51,6 +51,10 @@ against the live service it depends on.
 **Verified live** - run end to end against the real service, output cross-checked:
 Supabase schema, `calendar_skeleton`, `ff_sync`, `prices_daily`, `fred_actuals`,
 all four workflows, and the web app on real rows.
+
+**Blocked on the owner:** `sql/002_short_title.sql` is written and verified but
+not applied - `DATABASE_URL` is unset and Supabase's direct host is IPv6-only
+from this machine. Until it runs, calendar titles fall back to the full text.
 
 **Tested only** - covered by the suite against fakes, never exercised for real:
 - **Telegram.** `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are empty by

@@ -6,6 +6,20 @@ Slice 1 is complete and verified live, with one exception: Telegram has never
 delivered a message. Everything below assumes `main` at 8bde217 or later, the
 schema applied, and the three repository secrets set.
 
+## 0. Two owner actions, both one paste each
+
+1. **Apply `sql/002_short_title.sql`** in the Supabase SQL editor. It adds
+   `event_weights.short_title` and seeds 27 abbreviations, and it is idempotent.
+   Until it runs the calendar falls back to full titles, which ellipsise in the
+   month grid. It could not be applied from here: `DATABASE_URL` is unset and
+   `db.<ref>.supabase.co` resolves IPv6-only, which this machine cannot route.
+2. **Fix the first line of `.env`**, which is currently the mangled comment
+   `####ConnectionStringdb postgresql://...` rather than an assignment. It
+   should read `DATABASE_URL=postgresql://...`, and is worth pointing at the
+   **session pooler** host rather than the direct one so it works over IPv4.
+   With that set, `python -m scripts.apply_schema sql/002_short_title.sql`
+   applies migrations without the SQL editor. That script has still never run.
+
 ## 1. Telegram: verify live
 
 The only part of the slice that has never touched the real service. It is one
