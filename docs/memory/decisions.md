@@ -540,3 +540,28 @@ that made `001` a paste-into-the-SQL-editor job. Verified the rendering by
 serving the app with the migration's 27 values injected: every title fits.
 Until it is applied the calendar shows full titles, ellipsised with the full
 text on hover.
+
+## 2026-09-01 — "+1 more" on 16 September hides Retail Sales m/m, and that is correct
+Checked against the database, in the exact order the calendar sorts
+(`eventOrder: '-weight,start,title'`, `dayMaxEvents: 5`):
+
+| # | Weight | Time | Title | |
+|---|---|---|---|---|
+| 1 | 5 | 18:00Z | FOMC Economic Projections | visible |
+| 2 | 5 | 18:00Z | FOMC Statement | visible |
+| 3 | 5 | 18:00Z | Federal Funds Rate | visible |
+| 4 | 5 | 18:30Z | FOMC Press Conference | visible |
+| 5 | 3 | 12:30Z | Core Retail Sales m/m | visible |
+| 6 | 3 | 12:30Z | Retail Sales m/m | **hidden** |
+
+No weight-4 or weight-5 event is collapsed, and none can be while a lower-weight
+one is shown: sorting by weight descending means the events pushed into
+"+N more" are always the lightest on that day. That is the guarantee, and it
+lives entirely in the `eventOrder` line - which is why there is now a test
+asserting it starts with `-weight`.
+Swept all 71 days that carry events: the most weight>=4 events on any single day
+is **4**, against a cap of 5. The only way a weight-5 could ever be collapsed is
+a day carrying more than five weight-5 events - a Fed decision day (4) coinciding
+with a CPI release (3) would do it. That is not "low-value rows crowding out the
+ones that matter", it is a genuinely overloaded day, and "+N more" still exposes
+them. Left alone rather than special-cased.
