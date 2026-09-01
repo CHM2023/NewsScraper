@@ -147,8 +147,21 @@ class TestCalendarEvent:
         event = presenters.calendar_event(row())
         assert event["id"] == "USD|CPI m/m|2026-10-14"
         assert event["title"] == "CPI m/m"
-        assert event["start"] == "2026-10-14T12:30:00+00:00"
+        assert event["start"] == "2026-10-14T12:30:00Z"
         assert event["backgroundColor"] == "#c0392b"
+
+    def test_start_is_offset_aware_and_ends_in_z(self):
+        """The feed must never hand FullCalendar a zoneless instant.
+
+        A start with no offset is read as *local* time by the browser, which
+        shifts every release by the viewer's UTC offset and shows it silently.
+        That is the bug this assertion exists to catch.
+        """
+        start = presenters.calendar_event(row())["start"]
+        assert start.endswith("Z"), start
+        assert "+" not in start
+        # Round-trips to the same instant the row carries.
+        assert parse_iso(start) == parse_iso("2026-10-14T12:30:00+00:00")
 
     def test_colour_follows_weight(self):
         assert presenters.calendar_event(row(weight=4))["backgroundColor"] == "#e67e22"

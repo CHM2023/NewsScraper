@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any, Iterable, Sequence
 
-from common.timeutil import UTC, iso_utc, parse_iso
+from common.timeutil import UTC, iso_utc, iso_z, parse_iso
 from fetchers.surprise import describe as describe_surprise
 
 # Concept doc 3.3: red 5, orange 4, grey 3 and below.
@@ -144,9 +144,12 @@ def calendar_event(row: dict) -> dict:
     return {
         "id": view["id"],
         "title": view["title"],
-        # FullCalendar is configured with timeZone 'UTC', so it renders this
-        # instant unchanged rather than shifting it into the browser's zone.
-        "start": view["ts_utc"],
+        # An explicit Z, and FullCalendar is configured with timeZone 'local',
+        # so the browser converts this instant into the viewer's zone exactly as
+        # tz.js does for every other timestamp on the site. Rendering it in UTC
+        # under a header that says "times in <your zone>" told the trader a
+        # release was three hours earlier than it is.
+        "start": iso_z(parse_iso(view["ts_utc"]), field="events.ts_utc"),
         "backgroundColor": view["weight_colour"],
         "borderColor": view["weight_colour"],
         "extendedProps": {

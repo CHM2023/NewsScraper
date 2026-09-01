@@ -405,3 +405,30 @@ none of the zeros was taken at face value.
 `reported due reminders, flagged none` - it does not flip `reminded_*`. That is
 the behaviour dfae043 promised and it means the missing credentials delay
 reminders rather than destroying them.
+
+## 2026-09-01 — BUG FOUND LIVE: the calendar rendered UTC under a local-time label
+`/calendar` showed Non-Farm Employment Change at 12:30 and the FOMC Statement at
+18:00 while the header read "times in Asia/Beirut". Those were the raw UTC
+instants: the correct local values are 15:30 and 21:00. The "Today / This week"
+page was **not** affected - `tz.js` converts every `<time data-utc>` correctly,
+and NFP already read 15:30 there. The divergence was one line:
+`calendar.html` set FullCalendar's `timeZone: 'UTC'`, and a test
+(`test_it_renders_in_utc`) asserted it, so the suite was locking the bug in.
+This is worse than showing UTC honestly - a trader reads 12:30 as local and
+misses the release by three hours.
+**Chosen:** `timeZone: 'local'`, so FullCalendar converts exactly as tz.js does.
+The feed now emits `start` with a trailing `Z` via a new `timeutil.iso_z`,
+because an instant with no offset is read as *local* by `Date` and would shift
+every release silently. `iso_utc` is untouched, so stored `ts_utc` values and
+every `data-utc` attribute keep their `+00:00` form and nothing in the database
+has to be rewritten. `eventDidMount` puts the UTC instant in a `title` attribute
+so the underlying value is one hover away.
+**Verified** by driving headless Chrome over CDP with
+`Emulation.setTimezoneOverride` - the real DevTools mechanism. Note that the
+`TZ` environment variable does **not** work for this on Windows: Chrome reads
+the OS zone, so a `TZ=`-prefixed run silently re-tests the same zone and looks
+like a pass. NFP on 4 Sep reads 15:30 in Asia/Beirut, 22:30 in Australia/Sydney
+and 12:30 in UTC; the FOMC Statement reads 21:00, 04:00 **on 17 Sep** (the date
+correctly rolls) and 18:00.
+**Rejected:** keeping UTC and relabelling the calendar page, which would have
+left two pages of the same app disagreeing about when a release happens.

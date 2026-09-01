@@ -165,9 +165,17 @@ class TestCalendarPage:
     def test_it_loads_fullcalendar(self, client, stocked):
         assert "fullcalendar" in client.get("/calendar").text.lower()
 
-    def test_it_renders_in_utc(self, client, stocked):
-        """Rendering in UTC keeps the grid aligned with the event ids."""
-        assert "timeZone: 'UTC'" in client.get("/calendar").text
+    def test_it_renders_in_the_viewers_zone(self, client, stocked):
+        """The grid converts, like every other timestamp on the site.
+
+        This assertion used to require ``timeZone: 'UTC'``, which is how the
+        calendar came to show 12:30 for a release that lands at 15:30 in
+        Asia/Beirut while the header said "times in Asia/Beirut". The server
+        still emits nothing but UTC; the browser does the conversion.
+        """
+        body = client.get("/calendar").text
+        assert "timeZone: 'local'" in body
+        assert "timeZone: 'UTC'" not in body
 
     def test_it_has_the_weight_legend(self, client, stocked):
         body = client.get("/calendar").text
@@ -190,7 +198,10 @@ class TestApiEvents:
         payload = client.get(
             "/api/events", params={"start": "2026-09-01", "end": "2026-09-30"}
         ).json()
-        assert payload[0]["start"].endswith("+00:00")
+        # Ends in Z so the browser cannot read it as local time. FullCalendar
+        # is set to timeZone 'local' and does the conversion itself.
+        assert payload[0]["start"].endswith("Z")
+        assert "+" not in payload[0]["start"]
 
     def test_it_accepts_full_timestamps(self, client, stocked):
         response = client.get(

@@ -32,9 +32,12 @@
 
       var calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
         initialView: 'dayGridMonth',
-        // The feed hands over UTC instants. Rendering in UTC keeps the grid
-        // consistent with the event ids, which are keyed on the UTC date.
-        timeZone: 'UTC',
+        // The feed hands over UTC instants ending in Z; 'local' makes
+        // FullCalendar convert them to the viewer's zone, which is what the
+        // header promises and what tz.js does everywhere else on the site.
+        // Rendering the grid in UTC under that header meant a trader in Beirut
+        // read 12:30 for a release that lands at 15:30 their time.
+        timeZone: 'local',
         firstDay: 1,
         height: 'auto',
         headerToolbar: {
@@ -59,6 +62,13 @@
               success([]);
             })
             .catch(failure);
+        },
+        // The UTC instant stays one hover away, so a mismatch against a broker
+        // platform showing exchange time is visible rather than silent - and a
+        // regression that stopped converting would be obvious here.
+        eventDidMount: function (info) {
+          var utc = info.event.start ? info.event.start.toISOString() : '';
+          info.el.setAttribute('title', info.event.title + (utc ? ' - ' + utc + ' (UTC)' : ''));
         },
         eventClick: function (info) {
           info.jsEvent.preventDefault();

@@ -71,6 +71,20 @@ def iso_utc(dt: datetime, *, field: str = "datetime") -> str:
     return to_utc(dt, field=field).isoformat()
 
 
+def iso_z(dt: datetime, *, field: str = "datetime") -> str:
+    """Serialise to ISO-8601 UTC with a trailing ``Z``: ``2026-10-14T12:30:00Z``.
+
+    The same instant as :func:`iso_utc`, in the form that leaves a JavaScript
+    ``Date`` no room to guess. Used for the FullCalendar JSON feed, where an
+    instant carrying no offset at all would be read as *local* time by the
+    browser and shift every release by the viewer's UTC offset - the exact bug
+    this project cannot afford. Kept separate from ``iso_utc`` so the stored
+    ``ts_utc`` strings and the ``data-utc`` attributes keep their existing
+    ``+00:00`` form and nothing has to be rewritten in the database.
+    """
+    return to_utc(dt, field=field).isoformat().replace("+00:00", "Z")
+
+
 def utc_date(dt: datetime, *, field: str = "datetime") -> date:
     """The UTC calendar date of an aware datetime. Used to build event ids."""
     return to_utc(dt, field=field).date()
