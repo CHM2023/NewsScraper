@@ -10,33 +10,65 @@
 (function () {
   'use strict';
 
-  var zone;
+  // The settings page can pin a zone. Everything on every page reads it from
+  // here, so there is still exactly one place where UTC becomes local time.
+  var ZONE_KEY = 'xau.timezone';
+
+  var browserZone = null;
   try {
-    zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   } catch (err) {
-    zone = null;
+    browserZone = null;
   }
 
-  var dateFormat = new Intl.DateTimeFormat(undefined, {
+  var override = null;
+  try {
+    override = localStorage.getItem(ZONE_KEY) || null;
+  } catch (err) {
+    override = null;
+  }
+
+  // A stored zone the browser cannot resolve - a typo, or a name dropped from
+  // the tz database - must not blank every time on the page.
+  if (override) {
+    try {
+      new Intl.DateTimeFormat(undefined, { timeZone: override }).format(new Date());
+    } catch (err) {
+      override = null;
+    }
+  }
+
+  var zone = override || browserZone;
+
+  function options(extra) {
+    var out = { hour12: false };
+    for (var key in extra) { out[key] = extra[key]; }
+    if (override) { out.timeZone = override; }
+    return out;
+  }
+
+  var dateFormat = new Intl.DateTimeFormat(undefined, options({
     weekday: 'short',
     day: '2-digit',
     month: 'short',
     hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
+    minute: '2-digit'
+  }));
 
+  var dayKey = new Intl.DateTimeFormat('en-CA', options({
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }));
+
+  // Compared in the *display* zone. Using the machine's calendar date would
+  // call a release "today" that is tomorrow in the zone being shown.
   function isToday(value, now) {
-    return value.getFullYear() === now.getFullYear() &&
-           value.getMonth() === now.getMonth() &&
-           value.getDate() === now.getDate();
+    return dayKey.format(value) === dayKey.format(now);
   }
 
-  var timeOnly = new Intl.DateTimeFormat(undefined, {
+  var timeOnly = new Intl.DateTimeFormat(undefined, options({
     hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
+    minute: '2-digit'
+  }));
 
   // "14 min ago". Used for headlines, where how long ago a story broke is the
   // only thing worth knowing and an absolute clock time makes the reader do
@@ -89,8 +121,13 @@
 
   function showZone() {
     var label = document.getElementById('tz-name');
-    if (label && zone) { label.textContent = zone; }
+    if (label && zone) {
+      label.textContent = zone + (override ? ' (set)' : '');
+    }
   }
+
+  // The calendar page needs the same answer for FullCalendar's timeZone option.
+  window.xauDisplayZone = function () { return override; };
 
   document.addEventListener('DOMContentLoaded', function () {
     showZone();

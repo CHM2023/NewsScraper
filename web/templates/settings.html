@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Settings - XAU/USD{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% block content %}
+  <h1>Settings</h1>
+  <p class="muted">
+    Stored in this browser only. Nothing here is sent to the server.
+  </p>
+
+  <section class="setting">
+    <h2>Timezone</h2>
+    <p class="muted">
+      Every time on every page is stored in UTC and converted here. The default
+      is whatever this browser reports; override it to read the site in another
+      zone without changing your machine.
+    </p>
+    <label for="tz-select">Display times in</label>
+    <select id="tz-select"></select>
+    <p class="muted small">
+      Detected: <code id="tz-detected">-</code>
+    </p>
+  </section>
+
+  <section class="setting">
+    <h2>Calendar</h2>
+    <p class="muted">
+      The minimum weight the calendar shows by default. This is the same
+      setting as the dropdown on the calendar page - changing either changes
+      both.
+    </p>
+    <label for="weight-select">Show events of weight</label>
+    <select id="weight-select">
+      <option value="5">5 only</option>
+      <option value="4">4 and above</option>
+      <option value="3">3 and above</option>
+      <option value="2">2 and above</option>
+      <option value="1">1 and above &mdash; everything</option>
+    </select>
+  </section>
+
+  <section class="setting">
+    <h2>Reminders</h2>
+    <p class="muted">
+      Two reminders are sent before each event of weight 4 or above. The lead
+      times are read by <code>fetchers/reminders.py</code> when it runs, so they
+      are set on the server rather than in this browser &mdash; a value stored
+      here could not reach a GitHub Actions run.
+    </p>
+    <dl class="detail">
+      <dt>Far reminder</dt><dd>{{ reminders.far_label }} before the release</dd>
+      <dt>Near reminder</dt><dd>{{ reminders.near_label }} before the release</dd>
+      <dt>Minimum weight</dt><dd>{{ reminders.min_weight }}</dd>
+      <dt>To change</dt>
+      <dd>
+        set <code>{{ reminders.var_name }}={{ reminders.far }},{{ reminders.near }}</code>
+        in <code>.env</code> and as a repository secret
+      </dd>
+    </dl>
+  </section>
+
+  <section class="setting">
+    <h2>Notifications</h2>
+    {% if telegram.configured %}
+      <p class="banner ok">
+        <strong>Telegram configured.</strong> Messages are delivered to chat
+        <code>{{ telegram.chat_hint }}</code>.
+      </p>
+    {% else %}
+      <p class="banner warn">
+        <strong>Telegram not configured.</strong> Alerts and reminders are
+        computed and logged, but nothing is delivered.
+      </p>
+      <p class="muted">
+        Set <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code> in
+        <code>.env</code>, and add both as repository secrets so the scheduled
+        workflows can send. Get the token from
+        <code>@BotFather</code> and the numeric chat id from
+        <code>/getUpdates</code> after messaging your bot.
+      </p>
+      <p class="muted small">
+        Reminders deliberately do not flip their "sent" flags while this is
+        unset, so nothing is lost in the meantime.
+      </p>
+    {% endif %}
+    <p class="muted small">
+      Email and push are not built. Telegram is the only channel in this slice.
+    </p>
+  </section>
+
+  <p id="saved" class="muted small" hidden>Saved.</p>
+
+  <script src="/static/js/settings.js"></script>
+{% endblock %}

@@ -6,6 +6,13 @@
 {% block head %}
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fullcalendar/6.1.15/index.global.min.js"
           crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  {# FullCalendar understands 'local' and 'UTC' on its own; a named IANA zone -
+     which is what the settings page can pin - needs the luxon plugin. It is not
+     on cdnjs, hence jsdelivr for these two. #}
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/luxon3@6.1.15/index.global.min.js"
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 {% endblock %}
 
 {% block content %}
@@ -81,6 +88,14 @@
         counter.hidden = hidden === 0;
       }
 
+      // The settings page can pin a zone; without one this is 'local', which is
+      // what tz.js does for every other timestamp on the site.
+      var displayZone = 'local';
+      try {
+        var pinned = window.xauDisplayZone && window.xauDisplayZone();
+        if (pinned && window.FullCalendar && window.luxon) { displayZone = pinned; }
+      } catch (err) { displayZone = 'local'; }
+
       // Month is the right default on a desktop, but at phone width a month
       // grid is unreadable - the list view was clearly better in testing.
       var narrow = window.matchMedia('(max-width: 700px)').matches;
@@ -92,7 +107,7 @@
         // header promises and what tz.js does everywhere else on the site.
         // Rendering the grid in UTC under that header meant a trader in Beirut
         // read 12:30 for a release that lands at 15:30 their time.
-        timeZone: 'local',
+        timeZone: displayZone,
         firstDay: 1,
         height: 'auto',
         // Collapse a busy day into "+N more" rather than letting it grow a

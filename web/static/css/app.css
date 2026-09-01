@@ -348,3 +348,33 @@ a.hl-title:hover { text-decoration: underline; }
 @media (max-width: 700px) {
   .headlines li { grid-template-columns: 1fr; gap: 0.2rem; }
 }
+
+/* ---------- settings ---------- */
+.setting {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 1rem 1.1rem;
+  margin: 0 0 1rem;
+  max-width: 46rem;
+}
+.setting h2 { margin-top: 0; }
+.setting p { margin: 0 0 0.7rem; }
+.setting label {
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 0.9rem;
+}
+.setting select {
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.25rem 0.4rem;
+  max-width: 22rem;
+}
+.setting select:hover { border-color: var(--muted); }
+.setting .detail { margin-top: 0; }
+.small { font-size: 0.82rem; }
+.banner.ok { border-left-color: var(--up); background: #f1f9f4; }

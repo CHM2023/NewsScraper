@@ -25,10 +25,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from common import config
 from common.config import MissingConfig
 from common.logging_setup import configure_logging
 from common.timeutil import now_utc
 from db import repo
+from fetchers import reminders
 from fetchers.blackout import active_window, next_window
 from web import presenters
 
@@ -167,6 +169,39 @@ def event_detail(request: Request, event_id: str):
             "warning": warning,
         },
         status_code=200 if row or warning else 404,
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings(request: Request):
+    """Preferences. Browser-side, plus a read-only view of the server's own.
+
+    The timezone and the calendar's minimum weight are genuinely per-browser and
+    live in localStorage. The reminder lead times and the notification channel
+    are not: they are read by fetchers running in GitHub Actions, which cannot
+    see this browser, so they are shown with the variable to set rather than
+    offered as a control that would do nothing.
+    """
+    far, near = reminders.configured_leads()
+    chat_id = config.get("TELEGRAM_CHAT_ID") or ""
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "reminders": {
+                "far": far,
+                "near": near,
+                "far_label": reminders._label(far),
+                "near_label": reminders._label(near),
+                "min_weight": reminders.MIN_WEIGHT,
+                "var_name": reminders.LEAD_VAR,
+            },
+            "telegram": {
+                "configured": bool(config.get("TELEGRAM_BOT_TOKEN") and chat_id),
+                # Never render the id itself; it is enough to show it is set.
+                "chat_hint": f"...{chat_id[-4:]}" if len(chat_id) >= 4 else "set",
+            },
+        },
     )
 
 

@@ -734,3 +734,47 @@ holds its own reference and patching only the source module leaves repo's copy
 live - which is why the first attempt at this guard changed nothing.
 Tests that want a database still pass a fake through the `client=` argument
 every `db.repo` function accepts, which never reaches the guard.
+
+## 2026-09-01 — Settings: localStorage for what is a browser preference, env for what is not
+`/settings` splits deliberately, because two of the four items on it are not
+browser settings at all and a control that cannot do anything is worse than no
+control.
+
+**Browser preferences, in `localStorage`, fully working:**
+- **Timezone.** `xau.timezone`, read by `tz.js` on every page. Empty means "use
+  what the browser reports". The zone list comes from
+  `Intl.supportedValuesOf('timeZone')` (419 entries) with a curated fallback for
+  browsers without it. A stored zone the browser cannot resolve is discarded
+  rather than left to blank every timestamp on the page.
+- **Calendar minimum weight.** Deliberately the *same* `xau.minWeight` key the
+  calendar's own dropdown writes, so the two controls cannot drift apart.
+
+**Server configuration, shown read-only with the variable to set:**
+- **Reminder lead times.** `fetchers/reminders.py` now reads
+  `REMINDER_LEAD_MINUTES` ("far,near", default "1440,60") instead of hardcoding
+  24h and 1h, and validates it - anything unparseable, the wrong length, or not
+  `far > near > 0` falls back to the default **and logs why**, because a
+  reminder at the wrong horizon is worse than one on the default schedule.
+  The *number* of tiers stays two: the schema has exactly two flag columns,
+  `reminded_24h` and `reminded_1h`, so a third tier needs a migration, not a
+  longer list. The page shows the live values and the variable to set. It does
+  **not** offer an input: reminders run in GitHub Actions, which cannot read
+  this browser, so a localStorage lead time would be theatre.
+- **Telegram.** Status only, derived from whether the token and chat id are
+  present. The chat id is never rendered in full, only its last four digits.
+
+**Two side effects worth knowing.**
+`isToday` in `tz.js` now compares calendar dates *in the display zone* rather
+than the machine's. Without that, pinning Sydney while sitting in Beirut labels
+a release "today" that is tomorrow where it is being read.
+The calendar needed the FullCalendar **luxon plugin** to accept a named IANA
+zone - it understands only `'local'` and `'UTC'` on its own. It is not on cdnjs,
+so luxon and the plugin load from jsdelivr; every other CDN asset still comes
+from cdnjs. Without an override the calendar stays on `'local'` and neither
+script matters.
+
+**This becomes per-user the moment the app has users beyond the owner.**
+localStorage is per-browser, so the same person on a phone and a laptop gets two
+different sets, and nothing here survives clearing site data. A `user_settings`
+table keyed on an auth id is the replacement; auth is explicitly out of scope in
+this slice.

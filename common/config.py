@@ -22,6 +22,10 @@ KNOWN_VARS: dict[str, str] = {
     "FRED_API_KEY": "Free key from https://fredaccount.stlouisfed.org/apikeys",
     "TELEGRAM_BOT_TOKEN": "Bot token from @BotFather",
     "TELEGRAM_CHAT_ID": "Numeric chat id to send notifications to",
+    "REMINDER_LEAD_MINUTES": (
+        "Reminder lead times in minutes, far tier first, e.g. 1440,60 "
+        "(the default: 24 hours and 1 hour)"
+    ),
 }
 
 # Supabase renamed its server-side key: the dashboard now calls it a "Secret

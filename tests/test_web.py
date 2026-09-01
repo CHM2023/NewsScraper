@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,6 +16,13 @@ from fastapi.testclient import TestClient
 from common.config import MissingConfig
 from common.timeutil import now_utc
 from web import app as web_app
+
+
+STATIC = Path(web_app.__file__).resolve().parent / "static" / "js"
+
+
+def read_static(name: str) -> str:
+    return (STATIC / name).read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -199,6 +207,52 @@ class TestHeadlines:
         assert "No headlines yet" in response.text
 
 
+class TestSettingsPage:
+    def test_it_renders(self, client, stocked):
+        response = client.get("/settings")
+        assert response.status_code == 200
+        assert "Settings" in response.text
+
+    def test_it_offers_a_timezone_override(self, client, stocked):
+        body = client.get("/settings").text
+        assert 'id="tz-select"' in body
+        assert "/static/js/settings.js" in body
+
+    def test_it_shares_the_calendar_weight_key(self, client, stocked):
+        """One key, so the calendar dropdown and this cannot drift apart."""
+        assert "xau.minWeight" in read_static("settings.js")
+        assert 'id="weight-select"' in client.get("/settings").text
+
+    def test_the_timezone_key_is_the_one_tz_js_reads(self, client, stocked):
+        assert "xau.timezone" in read_static("settings.js")
+        assert "xau.timezone" in read_static("tz.js")
+
+    def test_it_shows_the_reminder_lead_times_and_how_to_change_them(self, client, stocked):
+        body = client.get("/settings").text
+        assert "REMINDER_LEAD_MINUTES" in body
+        assert "24h" in body and "1h" in body
+
+    def test_it_reports_telegram_as_unconfigured_without_a_token(
+        self, client, stocked, monkeypatch
+    ):
+        monkeypatch.setattr(web_app.config, "get", lambda name, default=None: None)
+        body = client.get("/settings").text
+        assert "Telegram not configured" in body
+        assert "TELEGRAM_BOT_TOKEN" in body
+
+    def test_it_never_prints_the_chat_id_in_full(self, client, stocked, monkeypatch):
+        monkeypatch.setattr(
+            web_app.config, "get",
+            lambda name, default=None: "123456789" if "TELEGRAM" in name else None,
+        )
+        body = client.get("/settings").text
+        assert "Telegram configured" in body
+        assert "123456789" not in body
+
+    def test_it_is_linked_from_the_navigation(self, client, stocked):
+        assert 'href="/settings"' in client.get("/").text
+
+
 class TestCalendarPage:
     def test_it_renders(self, client, stocked):
         response = client.get("/calendar")
@@ -217,7 +271,10 @@ class TestCalendarPage:
         still emits nothing but UTC; the browser does the conversion.
         """
         body = client.get("/calendar").text
-        assert "timeZone: 'local'" in body
+        # The zone is a variable now, because the settings page can pin one.
+        # What must not come back is the hardcoded UTC that caused the bug.
+        assert "timeZone: displayZone" in body
+        assert "var displayZone = 'local';" in body
         assert "timeZone: 'UTC'" not in body
 
     def test_the_legend_explains_the_weights_in_words(self, client, stocked):
