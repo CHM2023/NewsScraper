@@ -9,7 +9,7 @@ import pytest
 from common.timeutil import parse_iso
 from fetchers import calendar_skeleton as cs
 from fetchers import fomc
-from fetchers.titles import FRED_RELEASE_TO_TITLE, SKELETON_TITLES
+from fetchers.titles import FRED_RELEASE_TO_TITLES, SKELETON_TITLES
 
 
 class TestBuildRows:
@@ -157,7 +157,7 @@ class TestReleaseIndex:
 class TestConfiguration:
     def test_every_skeleton_title_is_reachable(self):
         """Each title is either mapped from a FRED release or is the FOMC one."""
-        mapped = set(FRED_RELEASE_TO_TITLE.values())
+        mapped = {t for titles in FRED_RELEASE_TO_TITLES.values() for t in titles}
         fomc_titles = set(cs.FOMC_DECISION_TITLES) | {cs.FOMC_PROJECTION_TITLE}
         for title in SKELETON_TITLES:
             assert title in mapped or title in fomc_titles, title
@@ -222,3 +222,43 @@ class TestFomcDayIsComplete:
         rows = self._rows([fomc.Meeting(date(2026, 9, 16), True)])
         ids = [r["id"] for r in rows]
         assert len(ids) == len(set(ids)) == 4
+
+
+class TestReleasesFanOutToEveryPrint:
+    """One release day carries several numbers, each its own event."""
+
+    def test_cpi_day_carries_three_prints(self):
+        assert FRED_RELEASE_TO_TITLES["consumer price index"] == (
+            "CPI m/m", "CPI y/y", "Core CPI m/m"
+        )
+
+    def test_employment_situation_carries_three(self):
+        assert FRED_RELEASE_TO_TITLES["employment situation"] == (
+            "Non-Farm Employment Change", "Unemployment Rate",
+            "Average Hourly Earnings m/m",
+        )
+
+    def test_ppi_and_retail_sales_carry_their_core_print(self):
+        assert "Core PPI m/m" in FRED_RELEASE_TO_TITLES["producer price index"]
+        assert "Core Retail Sales m/m" in FRED_RELEASE_TO_TITLES[
+            "advance monthly sales for retail and food services"
+        ]
+
+    def test_every_fanned_out_title_can_get_an_actual(self):
+        """A title with no series would sit on the calendar permanently blank."""
+        from fetchers.series_map import UNMAPPED_REASONS, spec_for
+
+        for titles in FRED_RELEASE_TO_TITLES.values():
+            for title in titles:
+                assert spec_for(title) or title.lower() in UNMAPPED_REASONS, title
+
+    def test_one_release_date_produces_one_row_per_title(self):
+        from datetime import date as _date
+
+        titles = FRED_RELEASE_TO_TITLES["consumer price index"]
+        schedule = {t: [_date(2026, 9, 11)] for t in titles}
+        rows = cs.build_rows(schedule, {"cpi m/m": 5, "cpi y/y": 5, "core cpi m/m": 5})
+        assert len(rows) == 3
+        assert len({r["id"] for r in rows}) == 3
+        # Same instant, different ids - the title is what separates them.
+        assert len({r["ts_utc"] for r in rows}) == 1

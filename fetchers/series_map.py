@@ -60,6 +60,9 @@ SERIES_MAP: dict[str, SeriesSpec] = {
     "core cpi m/m": SeriesSpec("CPILFESL", "pct_change_mom", note="less food and energy, SA"),
     "core pce price index m/m": SeriesSpec("PCEPILFE", "pct_change_mom"),
     "ppi m/m": SeriesSpec("PPIFIS", "pct_change_mom", note="final demand, SA"),
+    "core ppi m/m": SeriesSpec(
+        "PPIFES", "pct_change_mom", note="final demand less foods and energy, SA"
+    ),
 
     # --- Labour ----------------------------------------------------------
     # PAYEMS is a level in thousands; the release quotes the monthly change.

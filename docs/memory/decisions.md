@@ -466,3 +466,33 @@ would have asserted the wrong answer. Corrected against the live page, and its
 header now says the markers are load-bearing. The 2027 block stays partial and
 synthetic - it exists to exercise the month-straddling rule - so the count test
 is pinned to 2026, the one complete year.
+
+## 2026-09-01 — One FRED release is several events, not one
+Beyond the one-week ForexFactory window the calendar showed `PPI m/m` alone on
+10 September and `CPI m/m` alone on 11 September. Missing: `Core CPI m/m` and
+`CPI y/y` (both weight 5), `Core PPI m/m`, `Core Retail Sales m/m`,
+`Unemployment Rate`, `Average Hourly Earnings m/m`. Inside the ForexFactory
+window the same days looked complete, because that feed lists every line of a
+release - so the gap only appeared where the skeleton was the sole source, which
+is most of the calendar.
+The cause: `FRED_RELEASE_TO_TITLE` mapped a release to exactly one title, chosen
+as its headline print, and the skeleton created one row per release.
+**Chosen:** `FRED_RELEASE_TO_TITLES` maps each release to the ordered tuple of
+titles it publishes, headline first. `collect_schedule` now fetches each
+release's dates **once** and fans them over every title, which is also one fewer
+API call than the old title-by-title loop. `FRED_RELEASE_TO_TITLE` survives as a
+derived headline-only view so existing callers were untouched.
+Ids stay collision-free because `event_id` is `USD|<title>|<date>` and the
+titles differ; the three CPI rows share a timestamp and have three distinct ids.
+Re-checked live after the change: 181 events, **zero** duplicate `(date, title)`
+pairs and zero duplicate ids, including where ff_sync had already written
+`Unemployment Rate` and `Average Hourly Earnings m/m` for 4 September - those
+merged onto the skeleton rows rather than doubling.
+**`Core PPI m/m` had no FRED series**, so it would have sat on the calendar
+permanently blank. Added `PPIFES` (Final Demand less foods and energy), verified
+live against the API and from the same "Final Demand" family as the `PPIFIS`
+already used for the headline. A test now asserts every fanned-out title either
+has a series spec or a recorded reason it cannot.
+Verified: 26 actuals filled for the new titles, each from its own series, and
+Core CPI for the 12 Aug release cross-checks exactly against `CPILFESL`
+(+0.2154, July over June - the reference-month rule holding for the new rows).

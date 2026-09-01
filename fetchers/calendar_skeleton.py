@@ -28,7 +28,7 @@ from db import repo
 from fetchers import fomc, http
 from fetchers.release_times import scheduled_ts_utc
 from fetchers.titles import (
-    FRED_RELEASE_TO_TITLE,
+    FRED_RELEASE_TO_TITLES,
     SKELETON_TITLES,
     event_id,
     normalize,
@@ -149,30 +149,43 @@ def collect_schedule(api_key: str, start: date, end: date, stats: Stats) -> dict
         stats.errors += 1
         stats.note("FRED /releases returned nothing; agency dates unavailable")
 
-    # FRED-sourced releases.
+    # FRED-sourced releases. One release publishes several numbers, so its dates
+    # are fetched once and fanned out over every title it carries - the calendar
+    # would otherwise show "CPI m/m" alone on CPI day and drop Core CPI, which
+    # is weight 5 in its own right.
     wanted = {
-        title: fred_name
-        for fred_name, title in FRED_RELEASE_TO_TITLE.items()
-        if title in SKELETON_TITLES
+        fred_name: tuple(t for t in titles if t in SKELETON_TITLES)
+        for fred_name, titles in FRED_RELEASE_TO_TITLES.items()
     }
-    for title, fred_name in sorted(wanted.items()):
+    for fred_name, titles in sorted(wanted.items()):
+        if not titles:
+            continue
         release_id = index.get(normalize(fred_name))
         if release_id is None:
             stats.skipped += 1
-            stats.note(f"no FRED release named {fred_name!r}; {title} not scheduled")
-            log.warning("could not resolve FRED release %r for %s", fred_name, title)
+            stats.note(
+                f"no FRED release named {fred_name!r}; "
+                f"{', '.join(titles)} not scheduled"
+            )
+            log.warning(
+                "could not resolve FRED release %r for %s", fred_name, ", ".join(titles)
+            )
             continue
         try:
             days = fetch_release_dates(api_key, release_id, start, end)
         except Exception as exc:  # one release must not stop the rest
             stats.errors += 1
-            log.exception("release %s (%s) failed: %s", release_id, title, exc)
+            log.exception("release %s (%s) failed: %s", release_id, fred_name, exc)
             continue
         if not days:
-            stats.note(f"{title}: no scheduled dates in window")
-        schedule[title] = days
-        stats.fetched += len(days)
-        log.info("%-28s %2d dates (FRED release %s)", title, len(days), release_id)
+            stats.note(f"{fred_name}: no scheduled dates in window")
+        for title in titles:
+            schedule[title] = list(days)
+            stats.fetched += len(days)
+        log.info(
+            "%-28s %2d dates x %d title(s) (FRED release %s)",
+            fred_name[:28], len(days), len(titles), release_id,
+        )
 
     # FOMC decisions, from the Federal Reserve calendar.
     try:
