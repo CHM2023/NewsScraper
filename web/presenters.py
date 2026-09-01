@@ -66,7 +66,16 @@ def format_number(value: Any, *, unit: str = "") -> str:
     elif number == int(number):
         rendered = str(int(number))
     else:
-        rendered = f"{number:g}"
+        # A computed actual carries the full precision of the index arithmetic -
+        # a CPI m/m arrives as 0.0736691443554482. The database keeps that, since
+        # Stage 3 will do sums on it, but the trader is reading a figure the BLS
+        # published as 0.1: rounding here is the difference between a number and
+        # a wall of noise. Values below 0.01 keep more places rather than
+        # collapsing to "0".
+        places = 2 if abs(number) >= 0.01 else 4
+        rendered = f"{number:.{places}f}".rstrip("0").rstrip(".")
+        if rendered in ("", "-", "-0"):
+            rendered = "0"
     return f"{rendered}{unit}"
 
 
