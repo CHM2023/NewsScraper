@@ -432,3 +432,37 @@ and 12:30 in UTC; the FOMC Statement reads 21:00, 04:00 **on 17 Sep** (the date
 correctly rolls) and 18:00.
 **Rejected:** keeping UTC and relabelling the calendar page, which would have
 left two pages of the same app disagreeing about when a release happens.
+
+## 2026-09-01 — A Fed decision day is four events, and the Fed marks its own SEP meetings
+The calendar showed only "FOMC Statement" on 16 September. The Fed announces the
+decision at 14:00 ET and holds a press conference at 14:30 ET, and at four
+meetings a year also publishes the Summary of Economic Projections and dot plot.
+`event_weights` already seeded all four titles at weight 5; only one was created.
+**Chosen:** `calendar_skeleton` fans every decision date out into `FOMC
+Statement`, `Federal Funds Rate` and `FOMC Press Conference`, plus `FOMC
+Economic Projections` at projection meetings only.
+
+**Which meetings publish an SEP: read the Fed's own marker.** The calendar page
+puts an asterisk on the date of those meetings ("15-16*"), so `fomc.py` parses it
+rather than inferring anything. If the Fed moves the SEP to a different meeting
+the page will be right and a month-based rule would be wrong. The offline
+fallback table carries no markers, so there the months March/June/September/
+December stand in - a rule that reproduces the published 2026 and 2027 schedules
+exactly. `fetch_meetings()` returns `Meeting(day, has_projections)`;
+`parse_fomc_calendar` and `fetch_decision_dates` are kept as dates-only wrappers
+so nothing else had to change.
+
+**Daylight saving is the trap here.** 14:00 ET is 18:00 UTC under EDT and 19:00
+UTC under EST, so the December meeting is an hour later in UTC than the September
+one. Times go through `release_times.et_to_utc`, which converts via
+`America/New_York`; no offset is ever hardcoded. Verified live: 16 Sep 2026 has
+four rows at 18:00/18:30Z, 9 Dec 2026 has four at 19:00/19:30Z, and 28 Oct 2026
+- not a projection meeting - correctly has three.
+
+**FOUND WHILE DOING THIS: the FOMC fixture was not faithful.** It carried
+asterisks on seven of eight 2026 meetings, because the parser only ever stripped
+them and nothing checked. Once the asterisk became load-bearing that fixture
+would have asserted the wrong answer. Corrected against the live page, and its
+header now says the markers are load-bearing. The 2027 block stays partial and
+synthetic - it exists to exercise the month-straddling rule - so the count test
+is pinned to 2026, the one complete year.

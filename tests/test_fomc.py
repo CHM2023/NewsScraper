@@ -8,6 +8,9 @@ import pytest
 
 from fetchers.fomc import (
     FALLBACK_DECISION_DATES,
+    PROJECTION_MONTHS,
+    fallback_meetings,
+    parse_fomc_meetings,
     _last_day,
     _last_month,
     parse_fomc_calendar,
@@ -104,3 +107,43 @@ class TestFallbackTable:
         parsed = set(parse_fomc_calendar(fomc_html))
         overlap = [d for d in FALLBACK_DECISION_DATES if d in parsed]
         assert len(overlap) >= 8, "the transcribed table has drifted from the page"
+
+
+class TestProjectionMeetings:
+    """The Fed marks SEP meetings with an asterisk; we read the marker."""
+
+    def test_the_fixture_marks_exactly_four_meetings_in_2026(self, fomc_html):
+        """2026 is the fixture's one complete year; 2027 is a partial block."""
+        marked = [
+            m for m in parse_fomc_meetings(fomc_html)
+            if m.day.year == 2026 and m.has_projections
+        ]
+        assert [m.day for m in marked] == [
+            date(2026, 3, 18), date(2026, 6, 17), date(2026, 9, 16), date(2026, 12, 9)
+        ]
+
+    def test_september_2026_publishes_projections(self, fomc_html):
+        marked = {m.day for m in parse_fomc_meetings(fomc_html) if m.has_projections}
+        assert date(2026, 9, 16) in marked
+        assert date(2026, 12, 9) in marked
+
+    def test_a_meeting_without_an_asterisk_is_not_marked(self, fomc_html):
+        marked = {m.day for m in parse_fomc_meetings(fomc_html) if m.has_projections}
+        assert date(2026, 1, 28) not in marked
+        assert date(2026, 4, 29) not in marked
+
+    def test_marked_meetings_fall_in_the_projection_months(self, fomc_html):
+        for meeting in parse_fomc_meetings(fomc_html):
+            if meeting.has_projections:
+                assert meeting.day.month in PROJECTION_MONTHS
+
+    def test_dates_still_match_the_dates_only_helper(self, fomc_html):
+        from fetchers.fomc import parse_fomc_calendar
+
+        assert [m.day for m in parse_fomc_meetings(fomc_html)] == parse_fomc_calendar(fomc_html)
+
+    def test_the_fallback_table_derives_the_same_four_a_year(self):
+        """No asterisks offline, so the month rule stands in - and agrees."""
+        for year in {m.day.year for m in fallback_meetings()}:
+            marked = [m for m in fallback_meetings() if m.day.year == year and m.has_projections]
+            assert len(marked) == 4, (year, marked)

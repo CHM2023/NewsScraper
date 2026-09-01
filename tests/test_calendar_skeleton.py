@@ -8,6 +8,7 @@ import pytest
 
 from common.timeutil import parse_iso
 from fetchers import calendar_skeleton as cs
+from fetchers import fomc
 from fetchers.titles import FRED_RELEASE_TO_TITLE, SKELETON_TITLES
 
 
@@ -157,11 +158,67 @@ class TestConfiguration:
     def test_every_skeleton_title_is_reachable(self):
         """Each title is either mapped from a FRED release or is the FOMC one."""
         mapped = set(FRED_RELEASE_TO_TITLE.values())
+        fomc_titles = set(cs.FOMC_DECISION_TITLES) | {cs.FOMC_PROJECTION_TITLE}
         for title in SKELETON_TITLES:
-            assert title in mapped or title == cs.FOMC_TITLE, title
+            assert title in mapped or title in fomc_titles, title
 
     def test_skeleton_titles_have_release_times(self):
         from fetchers.release_times import RELEASE_TIMES_ET
 
         for title in SKELETON_TITLES:
             assert title in RELEASE_TIMES_ET, f"{title} would default to 08:30 ET"
+
+
+class TestFomcDayIsComplete:
+    """A Fed decision day is four events, and daylight saving moves them.
+
+    The statement, the target range and the projections publish at 14:00 ET and
+    the press conference at 14:30 ET. 14:00 ET is 18:00 UTC under EDT and 19:00
+    UTC under EST, so a hardcoded offset would put the December meeting an hour
+    wrong - which is the daylight-saving bug the concept doc calls out.
+    """
+
+    def _rows(self, meetings):
+        schedule = {}
+        days = [m.day for m in meetings]
+        for title in cs.FOMC_DECISION_TITLES:
+            schedule[title] = list(days)
+        projections = [m.day for m in meetings if m.has_projections]
+        if projections:
+            schedule[cs.FOMC_PROJECTION_TITLE] = projections
+        weights = {
+            "fomc statement": 5, "federal funds rate": 5,
+            "fomc press conference": 5, "fomc economic projections": 5,
+        }
+        return cs.build_rows(schedule, weights)
+
+    def test_september_2026_is_edt_and_lands_at_1800z(self):
+        rows = self._rows([fomc.Meeting(date(2026, 9, 16), True)])
+        by_title = {r["title"]: r["ts_utc"] for r in rows}
+        assert by_title["FOMC Statement"] == "2026-09-16T18:00:00+00:00"
+        assert by_title["Federal Funds Rate"] == "2026-09-16T18:00:00+00:00"
+        assert by_title["FOMC Economic Projections"] == "2026-09-16T18:00:00+00:00"
+        assert by_title["FOMC Press Conference"] == "2026-09-16T18:30:00+00:00"
+
+    def test_december_2026_is_est_and_lands_an_hour_later(self):
+        rows = self._rows([fomc.Meeting(date(2026, 12, 9), True)])
+        by_title = {r["title"]: r["ts_utc"] for r in rows}
+        assert by_title["FOMC Statement"] == "2026-12-09T19:00:00+00:00"
+        assert by_title["Federal Funds Rate"] == "2026-12-09T19:00:00+00:00"
+        assert by_title["FOMC Economic Projections"] == "2026-12-09T19:00:00+00:00"
+        assert by_title["FOMC Press Conference"] == "2026-12-09T19:30:00+00:00"
+
+    def test_a_meeting_without_projections_gets_three_rows(self):
+        rows = self._rows([fomc.Meeting(date(2026, 4, 29), False)])
+        titles = {r["title"] for r in rows}
+        assert titles == set(cs.FOMC_DECISION_TITLES)
+        assert cs.FOMC_PROJECTION_TITLE not in titles
+
+    def test_every_fomc_row_is_weight_five(self):
+        rows = self._rows([fomc.Meeting(date(2026, 9, 16), True)])
+        assert {r["weight"] for r in rows} == {5}
+
+    def test_ids_are_distinct_across_the_four_titles(self):
+        rows = self._rows([fomc.Meeting(date(2026, 9, 16), True)])
+        ids = [r["id"] for r in rows]
+        assert len(ids) == len(set(ids)) == 4

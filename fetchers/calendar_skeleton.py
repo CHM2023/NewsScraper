@@ -47,6 +47,19 @@ FAR_FUTURE = "9999-12-31"
 DEFAULT_MONTHS = 12
 FOMC_TITLE = "FOMC Statement"
 
+# A Fed decision day is four separate events, not one. The statement, the new
+# target range and (at four meetings a year) the projections all land at 14:00
+# ET; the press conference follows at 14:30 ET and regularly moves gold more
+# than the statement did. release_times.py holds the clock times and converts
+# them through America/New_York, so a December meeting in EST lands at 19:00
+# UTC while a September one in EDT lands at 18:00.
+FOMC_DECISION_TITLES: tuple[str, ...] = (
+    "FOMC Statement",
+    "Federal Funds Rate",
+    "FOMC Press Conference",
+)
+FOMC_PROJECTION_TITLE = "FOMC Economic Projections"
+
 
 def fetch_release_index(api_key: str) -> dict[str, int]:
     """Every FRED release, as ``normalised name -> release id``.
@@ -163,18 +176,35 @@ def collect_schedule(api_key: str, start: date, end: date, stats: Stats) -> dict
 
     # FOMC decisions, from the Federal Reserve calendar.
     try:
-        fomc_dates, source = fomc.fetch_decision_dates()
+        meetings, source = fomc.fetch_meetings()
     except Exception as exc:
-        fomc_dates, source = [], "error"
+        meetings, source = [], "error"
         stats.errors += 1
         log.exception("FOMC calendar failed: %s", exc)
-    in_window = [d for d in fomc_dates if start <= d <= end]
+    in_window = [m for m in meetings if start <= m.day <= end]
     if in_window:
-        schedule[FOMC_TITLE] = in_window
-        stats.fetched += len(in_window)
+        days = [m.day for m in in_window]
+        for title in FOMC_DECISION_TITLES:
+            schedule[title] = list(days)
+            stats.fetched += len(days)
+        # The dot plot exists only at the four projection meetings; creating it
+        # for the other four would put a weight-5 row on the calendar for
+        # something that is never published.
+        projection_days = [m.day for m in in_window if m.has_projections]
+        if projection_days:
+            schedule[FOMC_PROJECTION_TITLE] = projection_days
+            stats.fetched += len(projection_days)
+        log.info(
+            "%-28s %2d decisions x %d titles + %d projections (%s)",
+            "FOMC",
+            len(days),
+            len(FOMC_DECISION_TITLES),
+            len(projection_days),
+            source,
+        )
     else:
         stats.note("no FOMC dates in window")
-    log.info("%-28s %2d dates (%s)", FOMC_TITLE, len(in_window), source)
+        log.info("%-28s %2d dates (%s)", FOMC_TITLE, 0, source)
 
     return schedule
 

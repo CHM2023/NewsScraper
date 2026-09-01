@@ -6,7 +6,15 @@ fomc-meeting__date pairs.
 
 The 2027 block deliberately includes a meeting that straddles a month boundary
 ("January/February", "31-1") so the parser's "take the last month and the last
-day" rule is exercised. The real page has carried such rows in other years.
+day" rule is exercised. The real page has carried such rows in other years. That
+block is partial and synthetic - only 2026 is a faithful copy of a full year.
+
+The asterisks are load-bearing: the Fed marks the four meetings that publish a
+Summary of Economic Projections, and fetchers/fomc.py reads that marker to
+decide whether to create an "FOMC Economic Projections" row. They were
+originally sprinkled across most rows here, because the parser only stripped
+them; corrected on 2026-09-01 against the live page, where 2026 carries them on
+March, June, September and December only.
 -->
 <div class="panel panel-default panel--fomc">
   <div class="panel-heading">
@@ -15,7 +23,7 @@ day" rule is exercised. The real page has carried such rows in other years.
   <div class="panel-body">
     <div class="row fomc-meeting">
       <div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>January</strong></div>
-      <div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-2">27-28*</div>
+      <div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-2">27-28</div>
     </div>
     <div class="row fomc-meeting">
       <div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>March</strong></div>
@@ -23,7 +31,7 @@ day" rule is exercised. The real page has carried such rows in other years.
     </div>
     <div class="row fomc-meeting">
       <div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>April</strong></div>
-      <div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-2">28-29*</div>
+      <div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-2">28-29</div>
     </div>
     <div class="row fomc-meeting">
       <div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>June</strong></div>
@@ -31,7 +39,7 @@ day" rule is exercised. The real page has carried such rows in other years.
     </div>
     <div class="row fomc-meeting">
       <div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>July</strong></div>
-      <div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-2">28-29*</div>
+      <div class="fomc-meeting__date col-xs-4 col-sm-9 col-md-2">28-29</div>
     </div>
     <div class="row fomc-meeting">
       <div class="fomc-meeting__month col-xs-5 col-sm-3 col-md-2"><strong>September</strong></div>

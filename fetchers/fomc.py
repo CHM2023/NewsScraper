@@ -6,6 +6,14 @@ it is parsed with a regex rather than pulling in a scraping dependency for one
 page - see decisions.md.
 
 A decision is announced on the *last* day of each meeting, at 14:00 ET.
+
+Four meetings a year also publish the Summary of Economic Projections and the
+dot plot. The Fed marks those on this page itself, with an asterisk on the date
+("15-16*"), so that is what the parser reads rather than inferring anything -
+if the Fed ever moves the SEP to a different meeting, the page is right and a
+month-based rule would be wrong. The offline fallback table has no markers, so
+there the SEP meetings are derived from their months (March, June, September,
+December), which matches the published 2026 and 2027 calendars exactly.
 Meetings that straddle a month boundary are published with a two-month heading
 ("January/February", "31-1"), which is why the parser takes the month from the
 last name and the day from the last number.
@@ -20,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import date
 
 from fetchers import http
@@ -27,6 +36,19 @@ from fetchers import http
 log = logging.getLogger(__name__)
 
 FOMC_CALENDAR_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+
+# Months whose meeting carries a Summary of Economic Projections. Used *only*
+# for the fallback table, where the page's own asterisks are not available.
+PROJECTION_MONTHS: frozenset[int] = frozenset({3, 6, 9, 12})
+
+
+@dataclass(frozen=True)
+class Meeting:
+    """One FOMC decision: the announcement day, and whether it publishes an SEP."""
+
+    day: date
+    has_projections: bool
+
 
 MONTHS: dict[str, int] = {
     "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
@@ -75,14 +97,22 @@ def _last_month(month_text: str) -> int | None:
     return MONTHS.get(names[-1])
 
 
-def parse_fomc_calendar(html: str) -> list[date]:
-    """Extract every scheduled announcement date from the Fed calendar page.
+def _has_projections(date_text: str) -> bool:
+    """Whether the Fed marked this meeting as publishing an SEP.
+
+    The marker is an asterisk on the date cell, e.g. ``15-16*``.
+    """
+    return "*" in date_text
+
+
+def parse_fomc_meetings(html: str) -> list[Meeting]:
+    """Every scheduled meeting on the Fed calendar page, with its SEP marker.
 
     Returns the closing day of each meeting, sorted and de-duplicated. Rows that
     do not parse are skipped rather than raising: a layout change to one year's
     block must not lose the others.
     """
-    found: set[date] = set()
+    found: dict[date, bool] = {}
 
     # Split the document into year sections so each meeting gets the right year.
     headings = list(_YEAR_HEADING.finditer(html))
@@ -103,11 +133,60 @@ def parse_fomc_calendar(html: str) -> list[date]:
                 log.debug("skipping unparsed FOMC row: %r %r", month_text, date_text)
                 continue
             try:
-                found.add(date(year, month, day))
+                meeting_day = date(year, month, day)
             except ValueError:
                 log.debug("skipping impossible FOMC date: %s-%s-%s", year, month, day)
+                continue
+            # A duplicated row must not clear a marker seen on the first one.
+            found[meeting_day] = found.get(meeting_day, False) or _has_projections(date_text)
 
-    return sorted(found)
+    return [Meeting(day, found[day]) for day in sorted(found)]
+
+
+def parse_fomc_calendar(html: str) -> list[date]:
+    """Just the announcement dates, sorted and de-duplicated."""
+    return [m.day for m in parse_fomc_meetings(html)]
+
+
+def fallback_meetings() -> list[Meeting]:
+    """The transcribed table, with SEP derived from the month.
+
+    The table carries no asterisks, so this is the documented second-best rule.
+    It reproduces the published 2026 and 2027 SEP meetings exactly.
+    """
+    return [
+        Meeting(day, day.month in PROJECTION_MONTHS) for day in FALLBACK_DECISION_DATES
+    ]
+
+
+def fetch_meetings(*, allow_fallback: bool = True) -> tuple[list[Meeting], str]:
+    """Meetings from the Fed site, falling back to the stored table.
+
+    Returns ``(meetings, source)``. The live page carries the SEP markers; the
+    fallback derives them from the month, and says so in the source string.
+    """
+    html = http.get_text(FOMC_CALENDAR_URL, timeout=20.0)
+    if html:
+        parsed = parse_fomc_meetings(html)
+        if parsed:
+            sep = sum(1 for m in parsed if m.has_projections)
+            log.info(
+                "parsed %d FOMC dates from federalreserve.gov (%d with projections)",
+                len(parsed), sep,
+            )
+            return parsed, "federalreserve.gov"
+        log.warning("FOMC calendar page fetched but nothing parsed out of it")
+    else:
+        log.warning("could not fetch the FOMC calendar page")
+
+    if not allow_fallback:
+        return [], "none"
+
+    log.warning(
+        "using the transcribed FOMC fallback table (last verified 2026-08-31); "
+        "projection meetings derived from the month, not from the page"
+    )
+    return fallback_meetings(), "fallback-table"
 
 
 def fetch_decision_dates(*, allow_fallback: bool = True) -> tuple[list[date], str]:
