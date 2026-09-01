@@ -50,14 +50,17 @@ app only reads.
 | `fetchers/reminders.py` | Step 5: 24h / 60min reminders for weight >= 4. |
 | `fetchers/fred_actuals.py` | Step 6: fill `actual`, compute `surprise`. |
 | `fetchers/prices_daily.py` | Step 7: daily prices, backfill, `events.regime`. |
+| `fetchers/headlines.py` | RSS collection, dedupe on url + normalised title. No classification. |
 | `web/app.py` | FastAPI routes. Read-only; every read degrades, never 500s. |
 | `web/presenters.py` | Pure: rows -> view models. Colours, formatting, no local time. |
 | `web/templates/` | Jinja2. Emits `data-utc`; never formats local time. |
-| `web/static/js/tz.js` | Converts every `data-utc` stamp. FullCalendar converts its own feed (`timeZone: 'local'`). |
+| `web/static/js/tz.js` | Converts every `data-utc` stamp, honouring the `xau.timezone` override. Also decides "today" in the display zone. |
+| `web/static/js/settings.js` | The settings form. Writes `xau.timezone` and `xau.minWeight`. |
 | `web/static/css/app.css` | Hand-written; no framework in this slice. |
 | `sql/001_init.sql` | Schema + `event_weights` seed. Run by hand in Supabase. |
 | `sql/002_short_title.sql` | Adds `event_weights.short_title` + 27 calendar abbreviations. **Not yet applied** - see `next-steps.md`. |
 | `sql/003_more_weights.sql` | Weights + short titles for 13 releases that were defaulting to 1. **Not yet applied.** |
+| `sql/004_headlines.sql` | `headlines.title_norm`, `fetched_at`, indexes. **Not yet applied - the collector cannot write without it.** |
 | `tests/fixtures/` | Captured API responses. Tests never hit the network. |
 
 The split between pure modules and I/O modules is deliberate: everything with
@@ -73,6 +76,7 @@ tested against fixtures, and the fetchers are thin wiring around them.
 | `GET /calendar` | FullCalendar month view. |
 | `GET /api/events?start=&end=` | JSON feed for FullCalendar. Max 400 days. `start` ends in `Z`. |
 | `GET /events/{id}` | HTMX detail panel, including the Stage 3 slot. |
+| `GET /settings` | Timezone, calendar weight, reminder lead times, Telegram status. |
 | `GET /health` | Liveness plus whether Supabase is reachable. |
 
 ## Environment variables
@@ -84,6 +88,7 @@ tested against fixtures, and the fetchers are thin wiring around them.
 | `FRED_API_KEY` | `calendar_skeleton`, `fred_actuals`, `prices_daily` | Free. |
 | `TELEGRAM_BOT_TOKEN` | `notify` | From @BotFather. |
 | `TELEGRAM_CHAT_ID` | `notify` | Numeric chat id. |
+| `REMINDER_LEAD_MINUTES` | `reminders` | Optional. `far,near` in minutes; default `1440,60`. Bad input falls back and logs. |
 
 `common/config.py` reads `.env` via `python-dotenv` when present, then the real
 environment (which is what GitHub Actions supplies). Missing variables raise
@@ -93,17 +98,37 @@ environment (which is what GitHub Actions supplies). Missing variables raise
 
 | Workflow | Cron (UTC) | Runs | Secrets |
 |---|---|---|---|
-| `calendar-sync.yml` | `0 * * * *` (hourly) | `fetchers.ff_sync` | Supabase + Telegram |
-| `reminders.yml` | `*/15 * * * *` | `fetchers.reminders` | Supabase + Telegram |
-| `daily.yml` | `0 7 * * *` | `calendar_skeleton`, `fred_actuals`, `prices_daily` | Supabase + FRED |
+| `actuals-hot.yml` | `*/5 12,13,14,15 * * 1-5` | `fred_actuals --days 1` | Supabase + FRED |
+| `actuals-fomc.yml` | `*/5 17,18,19 * * 1-5` | `fred_actuals --days 1 --fomc-only` | Supabase + FRED |
+| `actuals-catchup.yml` | `0 * * * *` | `fred_actuals --days 7` | Supabase + FRED |
+| `ff-sync.yml` | `*/30 * * * *` | `ff_sync` | Supabase + Telegram |
+| `reminders.yml` | `*/5 * * * *` | `reminders` | Supabase + Telegram |
+| `headlines.yml` | `*/15 * * * *` | `headlines` | Supabase |
+| `prices-daily.yml` | `30 21 * * 1-5` | `prices_daily` | Supabase + FRED |
+| `calendar-skeleton.yml` | `0 6 * * *` | `calendar_skeleton` | Supabase + FRED |
 | `tests.yml` | on push / PR | `pytest -q` | none |
 
-All three scheduled workflows set `concurrency` so runs cannot overlap: two
-`ff_sync` runs racing would diff against the same pre-write state and send the
-same NEW message twice. `daily.yml` runs at 07:00 UTC - after the US close and
-before the 08:30 ET releases - and its steps are ordered so the skeleton creates
-rows before actuals fill them and before `prices_daily` re-tags regimes.
-`daily.yml` also accepts a `backfill_years` input for the one-off history load.
+The four shared setup steps live in `.github/actions/python-env` - Python 3.12,
+a pip cache keyed on `requirements.txt`, and the install. `actions/checkout`
+stays in each workflow: a *local* composite action cannot be resolved until the
+repository containing it has been checked out.
+
+**The repository is public** (changed 2026-09-01), so Actions minutes are free
+and unlimited. On a private repo this schedule would bill ~15,800 minutes a
+month against a 2,000 cap, because GitHub rounds every job up to a whole minute
+and these runs take 30 seconds. If it is ever made private again, the schedule
+has to shrink. **Because the history is now world-readable, a key pasted into a
+file must be rotated, not merely removed.**
+
+**Cron is not a contract.** Measured on 2026-09-01: `reminders`, scheduled
+`*/15`, ran 4 times in 13 hours. See `decisions.md` for what would be needed for
+real freshness.
+
+Every workflow sets `timeout-minutes: 5`, `workflow_dispatch` and a
+`concurrency` group: two `ff_sync` runs racing would diff against the same
+pre-write state and send the same NEW message twice. `prices-daily` accepts a
+`backfill_years` input and `calendar-skeleton` a `months_back` input, for the
+one-off history loads.
 
 **Repository secrets.** Three are set and confirmed with `gh secret list`:
 `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `FRED_API_KEY`. `TELEGRAM_BOT_TOKEN` and

@@ -15,6 +15,88 @@ Status values: todo / in progress / done / blocked.
 | 9 | Web: Today / This week | done, VERIFIED LIVE | Served real Supabase rows: /health reports `database: ok`, / renders real titles with data-utc stamps that tz.js converts | Event detail is not linked from the today table |
 | 10 | Web: Calendar + event detail | done, VERIFIED LIVE | Times convert in the browser - NFP reads 15:30 Beirut / 22:30 Sydney / 12:30 UTC, checked over CDP. Low-impact toggle filters 24->48 and persists; listMonth below 700px; detail shows both clocks | `short_title` needs sql/002 applied, so titles ellipsise until then |
 
+## Stage 1 completion, against the concept document
+
+Every component named in sections 3.1 to 3.4. **VERIFIED LIVE** means it has run
+against the real service and its output was cross-checked, not merely that it
+did not crash.
+
+### 3.1A Scheduled releases
+
+| Component | Status | Note |
+|---|---|---|
+| FRED `releases/dates` schedule | VERIFIED LIVE | 331 releases resolved; one release fans out into every print it carries |
+| FOMC calendar (federalreserve.gov) | VERIFIED LIVE | Four events per decision day; SEP read from the Fed's own asterisk; EDT/EST correct |
+| BLS / BEA calendars | NOT BUILT, not needed | Both publish through FRED's release calendar, which is what we read |
+| ForexFactory forecasts | VERIFIED LIVE | `thisweek` 200; **`nextweek` 404s**, so forecasts cover about one week |
+| Actuals from FRED | VERIFIED LIVE | Cross-checked against raw series; reference-month rule holds |
+| Surprise score | VERIFIED LIVE (wiring) | Null for every backfilled event - no consensus history exists |
+
+### 3.1B Headlines
+
+| Component | Status | Note |
+|---|---|---|
+| RSS collection | VERIFIED LIVE | 108 headlines over four feeds; dedupe on url and normalised title |
+| Kitco | NOT BUILT | Feed retired - 404s and redirects to HTML. Replaced by Yahoo `GC=F` |
+| Reuters commodities | NOT BUILT | HTTP 401; public RSS withdrawn. Replaced by FXStreet |
+| MarketWatch, CNBC | VERIFIED LIVE | Both 200, 30 entries each |
+| Storage | **BLOCKED** | Needs `sql/004_headlines.sql`; the run reports `errors=1` naming it |
+| GDELT / NewsAPI history | NOT BUILT | Backfill only, and only Stage 2/3 consumes it |
+| Classification | NOT BUILT, by design | Stage 2. `category` and `score` stay null |
+
+### 3.2 Price and market data
+
+| Component | Status | Note |
+|---|---|---|
+| Daily gold | VERIFIED LIVE | 2,512 closes. FRED's LBMA series are retired; yfinance `GC=F` is the only source |
+| DXY, 10y real yield, Fed funds | VERIFIED LIVE | `dxy` holds `DTWEXBGS`, the Fed broad index, **not** ICE DXY |
+| Regime tagging | VERIFIED LIVE | hiking/holding/cutting correct across 2016-2026 |
+| **Dukascopy intraday gold** | **DEFERRED TO STAGE 3** | Owner's decision, 2026-09-01. Its only consumer is the event study; there is nothing in Stage 1 that reads a tick |
+
+### 3.3 Calendar and notifications
+
+| Component | Status | Note |
+|---|---|---|
+| FullCalendar month view | VERIFIED LIVE | Converts in the browser; verified Beirut/Sydney/UTC over CDP |
+| Weight colouring | VERIFIED LIVE | red 5, orange 4, grey below, weight-first ordering |
+| Weights in the database | VERIFIED LIVE | 27 seeded; **13 more await `sql/003`** |
+| NEW / CHANGED diff | VERIFIED LIVE | Diff runs and reports correctly |
+| 24h / 1h reminders | TESTED ONLY | Lead times now configurable. Runs live and degrades correctly, but **no message has ever been delivered** |
+| Telegram delivery | TESTED ONLY | Credentials deliberately unset |
+
+### 3.4 Pages
+
+| Page | Status | Note |
+|---|---|---|
+| Today / This week | VERIFIED LIVE | Events, recent releases, blackout banner, and the headlines column |
+| Calendar | VERIFIED LIVE | Min-weight filter, `+N more`, list view below 700px |
+| Event detail | VERIFIED LIVE | UTC and local side by side; Stage 3 slot intact |
+| Settings | VERIFIED LIVE | Timezone override, calendar weight, reminder lead times, Telegram status |
+
+### Measured freshness
+
+**Not yet measurable, and the reason is not the schedule.** Every release that
+has occurred since the schedule changed on 2026-09-01 15:30Z has **no FRED
+series mapped**: ISM Manufacturing PMI and Prices (withdrawn from FRED),
+JOLTS Job Openings, Construction Spending, Final Manufacturing PMI, RCM/TIPP,
+Omdia. `actuals-hot` ran and correctly had nothing to do.
+The historical lags in the table (116h for the 27 Aug claims, 140h for the
+26 Aug Core PCE) measure when the backfill was run, not the pipeline.
+**First real measurement: Unemployment Claims, Thursday 2026-09-03 12:30Z**,
+which maps to `ICSA`. To take it:
+```sql
+select title, ts_utc, updated_at,
+       extract(epoch from (updated_at - ts_utc))/60 as lag_minutes
+from events where ts_utc >= '2026-09-03' and actual is not null order by ts_utc;
+```
+`updated_at` is set by a trigger on every write, so read it before anything else
+touches the row.
+
+**Related gap found while measuring:** JOLTS (`JTSJOL`), Construction Spending
+(`TTLCONS`) and Trade Balance (`BOPGSTB`) are all real FRED series that simply
+are not in `SERIES_MAP`, so they can never get an actual. Not added here -
+mapping them is a decision about which prints matter, not a mechanical fix.
+
 ## Workflow runs verified live
 
 Dispatched by hand on 2026-09-01 with `gh workflow run`, all four green on the

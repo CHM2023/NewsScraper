@@ -2,89 +2,91 @@
 
 Updated at the end of every step. Newest plan replaces the old one.
 
-Slice 1 is complete and verified live, with one exception: Telegram has never
-delivered a message. Everything below assumes `main` at 8bde217 or later, the
-schema applied, and the three repository secrets set.
+Stage 1 is code-complete. `docs/memory/progress.md` carries the component-level
+completion table; this is the order to work in.
 
-## 0. Two owner actions, both one paste each
+## 1. Apply the outstanding migrations
 
-1. **Apply `sql/002_short_title.sql`, then `sql/003_more_weights.sql`**, in that
-   order, in the Supabase SQL editor. Both are idempotent. 002 adds
-   `event_weights.short_title` and seeds 27 abbreviations; 003 weights 13
-   releases that currently fall through to 1, including the Beige Book and ADP
-   at 3. Until they run, calendar titles ellipsise and those 13 sit at weight 1.
-   Neither could be applied from here: `DATABASE_URL` is unset and
-   `db.<ref>.supabase.co` resolves IPv6-only, which this machine cannot route.
-2. **Fix the first line of `.env`**, which is currently the mangled comment
-   `####ConnectionStringdb postgresql://...` rather than an assignment. It
-   should read `DATABASE_URL=postgresql://...`, and is worth pointing at the
-   **session pooler** host rather than the direct one so it works over IPv4.
-   With that set, `python -m scripts.apply_schema sql/002_short_title.sql`
-   applies migrations without the SQL editor. That script has still never run.
+Four files, in order, in the Supabase SQL editor. All are idempotent, and
+nothing below works properly until they are in.
 
-3. **Decide the weights for four titles**, which were deliberately not invented.
-   All four appear in the current ForexFactory week and default to 1:
-   `API Weekly Statistical Bulletin`, `ISM Manufacturing Prices`,
-   `Omdia Total Vehicle Sales`, `RCM/TIPP Economic Optimism`. Weight 1 is
-   probably right for all of them, but that is the owner's call. Note the list
-   is not exhaustive: ForexFactory publishes only one week at a time, so new
-   unweighted titles will keep appearing. Re-run the survey in
-   `decisions.md` (2026-09-01, "weights that were defaulting to 1") occasionally.
+| File | What it adds | What is broken without it |
+|---|---|---|
+| `sql/002_short_title.sql` | `event_weights.short_title` + 27 abbreviations | Calendar titles ellipsise |
+| `sql/003_more_weights.sql` | 13 releases weighted (Beige Book and ADP at 3) | Those 13 sit at weight 1 |
+| `sql/004_headlines.sql` | `headlines.title_norm`, `fetched_at`, indexes | **The headlines fetcher stores nothing** - it reports `errors=1` naming this file |
 
-## 1. Telegram: verify live
+`sql/001_init.sql` is already applied.
 
-The only part of the slice that has never touched the real service. It is one
-setting away from working, and until it does the platform can compute a NEW /
-CHANGED alert perfectly and tell nobody.
+**Fix `DATABASE_URL` while you are there.** The first line of `.env` is a
+mangled comment (`####ConnectionStringdb postgresql://...`) rather than an
+assignment, so the variable is unset. Point it at the **session pooler** host,
+not `db.<ref>.supabase.co`, which resolves IPv6-only and cannot be reached from
+this machine. With it set, `python -m scripts.apply_schema sql/00N_*.sql`
+applies migrations without the editor - that script has still never run.
 
-1. Create a bot with @BotFather, send it one message, and read the numeric chat
-   id from `https://api.telegram.org/bot<TOKEN>/getUpdates`.
-2. Put both values in `.env` as `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
-3. Send a real message: `python -m fetchers.notify "test"`. Then confirm the row
-   landed and the send actually succeeded:
+## 2. Telegram: verify live
+
+The only Stage 1 component that has never done its job. Everything computes
+correctly and delivers nothing.
+
+1. Create a bot with @BotFather, message it, and read the numeric chat id from
+   `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+2. Put `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`.
+3. `python -m fetchers.notify "test"`, then confirm delivery landed:
    `select ts_utc, ok, error from notifications_log order by ts_utc desc limit 5;`
-   `ok` must be **true**. A false with an error string means the token or chat id
-   is wrong; a missing row means `notify` was never reached.
-4. Add the same two values as repository secrets:
-   `gh secret set TELEGRAM_BOT_TOKEN --repo CHM2023/NewsScraper` (pipe the value
-   over stdin, never `--body`, so it stays out of the shell history).
-5. Watch one reminder fire for real. The next weight >= 4 event is Non-Farm
-   Employment Change on **2026-09-04 12:30Z**, so the 24h reminder is due around
-   2026-09-03 12:30Z and the 1h around 2026-09-04 11:30Z. Dispatch
-   `reminders.yml` in that window and confirm the log says it *flagged* the event
-   rather than `flagged none`, then check `reminded_24h` / `reminded_1h` flipped
-   and that a second dispatch sends nothing.
+   `ok` must be **true**.
+4. Add both as repository secrets (pipe over stdin, never `--body`).
+5. Watch one reminder fire. `reminders` deliberately does not flip
+   `reminded_24h` / `reminded_1h` while Telegram is unset, so a backlog of due
+   reminders is waiting - expect a burst on the first configured run, and check
+   how many are pending first.
+6. `/settings` will flip from "Telegram not configured" to configured on its
+   own; it reads the token's presence.
 
-Watch for the ordering trap: `reminders` deliberately does **not** flip a flag
-when Telegram is unconfigured, so no reminder is lost while the credentials are
-missing. That behaviour was confirmed live in run 33504544368. Once the secrets
-are set, the backlog of due reminders becomes deliverable - check how many are
-pending before the first run so a burst is expected rather than alarming.
+## 3. Deploy: Render + Cloudflare
 
-## 2. Slice 2: RSS headlines + Stage 2 classification
+The web app is read-only and stateless, so this is mostly configuration.
+- Render's free tier **sleeps after 15 minutes idle**, so the first request
+  after a quiet period takes ~30 seconds. Nothing schedules itself inside the
+  app - the fetchers are all in Actions - so sleeping costs freshness of the
+  page only, not of the data.
+- Set the same secrets as the workflows. `DATABASE_URL` is not needed: the app
+  never runs DDL.
+- Cloudflare in front for TLS and caching. Cache the static assets; **do not**
+  cache `/api/events` or `/partials/today`, which is where freshness lives.
+- Check `/health` reports `database: ok` from the deployed host - a Supabase
+  network policy that allows this machine may not allow Render's egress.
 
-Start with ingestion, not the LLM. A classifier with nothing to classify is
-untestable, and the headline pipeline is the part that can be verified against
-reality.
+## 4. Stage 2: classification
 
-1. **`fetchers/rss_sync.py`**, modelled on `ff_sync`: one module, `main()`,
-   idempotent, upserting into the existing `headlines` stub. Sources from the
-   concept doc are Kitco, Reuters, MarketWatch and CNBC. Deduplicate on URL, and
-   expect the same class of bug the last session found five times - check that a
-   "successful" run with `errors=0` actually stored distinct, current rows.
-2. **Confirm the `headlines` table matches what the feeds supply** before writing
-   the classifier. The stub was designed without a real feed in front of it.
-3. **Then the Claude Haiku classifier**: category + impact score, at the points
-   already marked `# STAGE 2:`. Keep it behind the same pure/IO split as the rest
-   - the prompt and the parsing of its response belong in a pure module tested
-   against captured fixtures, so the suite stays offline.
-4. **Rate limits and cost**: classify once per headline and store the result;
-   never re-classify on page load.
+The headlines are already flowing and `category`/`score` are waiting.
+1. **Classify with Claude Haiku** at the points marked `# STAGE 2:`. Keep the
+   prompt and the response parsing in a pure module tested against captured
+   fixtures, so the suite stays offline.
+2. **Classify once per headline and store it.** Never on page load.
+3. **Then the release importance scoring** of concept doc 4.1-4.3, which can
+   reuse the surprise score that already exists.
 
-## Also worth doing early in Slice 2
-- **A gold coverage check in `prices_daily`** that fails the run when `xau_close`
-  is missing for too many of the last 30 weekdays. Gold now has a single upstream
-  source and it has already gone null once with `errors=0`.
-- **Link the event detail panel from the today table**, not just the calendar.
-- **Pin the workflow actions**: `actions/checkout@v4` and `setup-python@v5` now
-  warn that Node 20 is deprecated and are being forced onto Node 24.
+## Also worth doing, unscheduled
+
+- **Map the releases FRED can actually answer.** JOLTS (`JTSJOL`), Construction
+  Spending (`TTLCONS`) and Trade Balance (`BOPGSTB`) are real series missing from
+  `SERIES_MAP`, so those events can never get an actual.
+- **Decide weights for four titles** left unweighted on purpose:
+  `API Weekly Statistical Bulletin`, `ISM Manufacturing Prices`,
+  `Omdia Total Vehicle Sales`, `RCM/TIPP Economic Optimism`.
+- **A gold coverage check in `prices_daily`** that fails the run when
+  `xau_close` is missing for too many recent weekdays. Gold has one upstream
+  source and it has gone null silently once already.
+- **Measure the actuals lag** on the first mappable release - Unemployment
+  Claims, Thursday 2026-09-03 12:30Z. The query is in `progress.md`.
+- **Pin the workflow actions**: `actions/checkout@v4` and `setup-python@v5` warn
+  that Node 20 is deprecated.
+
+## Deferred by decision, not forgotten
+
+**Dukascopy intraday gold** (concept doc 3.2) is deferred to **Stage 3** by the
+owner, 2026-09-01. Its only consumer is the event study: nothing in Stage 1
+reads a tick, and the daily close is what the regime tagging and the calendar
+need. It moves back into scope when section 5.2's data requirements do.

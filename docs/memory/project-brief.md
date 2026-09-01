@@ -45,7 +45,16 @@ Extension points for the above are left in place and marked `# STAGE 2:` or
 - `uvicorn web.app:app` serves `/` and `/calendar`
 - All memory files accurate as of the last commit
 
-**Met on 2026-09-01**, with one carve-out: Telegram has never delivered a real
-message, because no credentials were supplied. Step 5 is therefore tested but not
-verified live, and it is the first item in `next-steps.md`. Everything else in
-the slice has been run against the live service it depends on.
+**Met on 2026-09-01.** Stage 1 is code-complete: the RSS headline pipeline and
+the settings page, the last two unbuilt pieces of sections 3.1B and 3.4, landed
+the same day. `progress.md` carries the component-level table.
+
+Two carve-outs, both recorded rather than hidden:
+- **Telegram has never delivered a message.** No credentials were supplied, so
+  the whole delivery path is tested but not verified live. First item in
+  `next-steps.md`.
+- **Three migrations are written but not applied** (`002`, `003`, `004`).
+  `004` in particular means the headline collector stores nothing yet.
+
+**Dukascopy intraday gold**, listed under section 3.2, is deferred to Stage 3 by
+the owner's decision of 2026-09-01: its only consumer is the event study.
