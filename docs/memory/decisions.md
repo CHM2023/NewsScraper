@@ -376,3 +376,32 @@ the same endpoint. **Chosen:** a `--months-back` flag extending the window
 backwards, used here to seed four months. It is also the mechanism Stage 3's
 ten-year event backfill will use. **Rejected:** a throwaway script, which would
 have left the history in the database with no reproducible way to regenerate it.
+
+## 2026-09-01 — All four workflows verified live, and why the zeros were checked
+`gh workflow run` on each of `tests`, `calendar-sync`, `daily` and `reminders`,
+all green on the three real repository secrets. The CI install resolved the new
+pins (`supabase==2.31.0`, `yfinance==1.7.0`, `tzdata`, `psycopg[binary]`) on
+ubuntu-latest / Python 3.12 with no build step - worth confirming, because
+`psycopg[binary]` and `yfinance` are the two most likely to need one. Run ids are
+in `progress.md`.
+
+Three of the four runs reported **zero** work done, which is the exact shape the
+five bugs found earlier in the day took: `errors=0` over wrong or absent data. So
+none of the zeros was taken at face value.
+- `calendar-sync`: `0 new, 0 changed, 27 unchanged` is a *positive* result - the
+  diff read 27 real stored rows back out of Supabase and matched them. A broken
+  read would have reported 27 new.
+- `daily`: `fetched=46 skipped=47` looked like an off-by-one and is not.
+  `stats.skipped` is incremented in two places - once per row already present
+  (46) and once per FRED release that cannot be resolved (1, ISM). The counter is
+  overloaded, but the run also emits an explicit note naming ISM, so the log is
+  not misleading. Left as is.
+- `reminders`: `0 candidate(s)` in both tiers was checked against the database
+  rather than assumed. The next weight >= 4 event is NFP on 2026-09-04 12:30Z;
+  everything inside the 24h window is weight 1 or 3 (Unemployment Claims is
+  deliberately weight 1 - "rarely moves gold on its own"). The zero is correct.
+
+**Confirmed by the same run:** with no Telegram token, `reminders` logs
+`reported due reminders, flagged none` - it does not flip `reminded_*`. That is
+the behaviour dfae043 promised and it means the missing credentials delay
+reminders rather than destroying them.

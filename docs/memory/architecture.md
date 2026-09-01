@@ -44,7 +44,7 @@ app only reads.
 | `fetchers/release_times.py` | Pure: standing ET release times -> UTC, via the real IANA zone. |
 | `fetchers/series_map.py` | Title -> FRED series id + transform, for actuals. |
 | `fetchers/fomc.py` | FOMC calendar parsing + a verified fallback date table. |
-| `fetchers/calendar_skeleton.py` | Step 3: 12 months of release dates. |
+| `fetchers/calendar_skeleton.py` | Step 3: release dates as far ahead as FRED publishes them (~4 months, not 12) plus `--months-back` for history. |
 | `fetchers/ff_sync.py` | Step 4: weekly forecasts, diff, notify. One week, see below. |
 | `fetchers/notify.py` | Step 5: `send(message)` -> Telegram + notifications_log. |
 | `fetchers/reminders.py` | Step 5: 24h / 60min reminders for weight >= 4. |
@@ -78,7 +78,7 @@ tested against fixtures, and the fetchers are thin wiring around them.
 | Variable | Used by | Notes |
 |---|---|---|
 | `SUPABASE_URL` | `db/client.py` | Project URL. |
-| `SUPABASE_SERVICE_KEY` | `db/client.py` | service_role key; bypasses RLS, server only. |
+| `SUPABASE_SERVICE_KEY` | `db/client.py` | Holds Supabase's current `sb_secret_...` key, not a legacy `service_role` JWT. Bypasses RLS, server only. Needs `supabase>=2.31`. |
 | `FRED_API_KEY` | `calendar_skeleton`, `fred_actuals`, `prices_daily` | Free. |
 | `TELEGRAM_BOT_TOKEN` | `notify` | From @BotFather. |
 | `TELEGRAM_CHAT_ID` | `notify` | Numeric chat id. |
@@ -86,9 +86,6 @@ tested against fixtures, and the fetchers are thin wiring around them.
 `common/config.py` reads `.env` via `python-dotenv` when present, then the real
 environment (which is what GitHub Actions supplies). Missing variables raise
 `MissingConfig` naming the variable — fetchers fail fast rather than half-running.
-
-## Workarounds and source deviations
-Recorded here as they are discovered; the reasoning lives in `decisions.md`.
 
 ## Scheduled workflows
 
@@ -106,10 +103,15 @@ before the 08:30 ET releases - and its steps are ordered so the skeleton creates
 rows before actuals fill them and before `prices_daily` re-tags regimes.
 `daily.yml` also accepts a `backfill_years` input for the one-off history load.
 
-**Repository secrets to add** (Settings -> Secrets and variables -> Actions):
-`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`,
-`TELEGRAM_CHAT_ID`. `tests/test_workflows.py` fails if a workflow ever references
-a secret outside this set, or runs a fetcher module that does not exist.
+**Repository secrets.** Three are set and confirmed with `gh secret list`:
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `FRED_API_KEY`. `TELEGRAM_BOT_TOKEN` and
+`TELEGRAM_CHAT_ID` are deliberately **not** set, so the Telegram steps run and
+degrade to logging. `DATABASE_URL` is not a workflow secret either: no workflow
+runs DDL. `tests/test_workflows.py` fails if a workflow ever references a secret
+outside the set of five, or runs a fetcher module that does not exist.
+
+All four workflows were dispatched and verified green against the live services
+on 2026-09-01; the run ids are in `progress.md`.
 
 ## Workarounds and source deviations
 
@@ -122,7 +124,7 @@ Verified against the live sources on 2026-08-31. Reasoning is in `decisions.md`.
 | FOMC dates | No FRED release covers them | Regex the Fed calendar page; a table transcribed on 2026-08-31 is the fallback. All 16 fallback dates for 2026-27 match the live page. |
 | ISM PMIs | Withdrawn from FRED over licensing | Dates and forecasts still come from ForexFactory; `actual` stays null, and `series_map` records why. |
 | `dxy` column | ICE DXY is not free with history | Holds FRED `DTWEXBGS`, the Fed's broad dollar index. Named `dxy` but is **not** ICE DXY. |
-| LBMA gold on FRED | Discontinued once already | Used when current; falls back to yfinance `GC=F` when stale or absent. |
+| LBMA gold on FRED | **Both series now return `400 does not exist`**, and FRED has no free daily spot gold at all | `FRED_GOLD_SERIES = None`, so no run wastes a call on it. `xau_close` comes solely from yfinance `GC=F` (pinned `1.7.0`; 0.2.x is broken against Yahoo). Single point of failure - see `progress.md`. |
 | Windows + `zoneinfo` | No IANA database on Windows | `tzdata` is pinned in requirements. |
 
 Console and log strings are kept ASCII-only: the Windows console is cp1252 and

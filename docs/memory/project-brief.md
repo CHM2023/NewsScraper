@@ -44,3 +44,8 @@ Extension points for the above are left in place and marked `# STAGE 2:` or
 - `python -m fetchers.ff_sync` runs end to end against the live Supabase
 - `uvicorn web.app:app` serves `/` and `/calendar`
 - All memory files accurate as of the last commit
+
+**Met on 2026-09-01**, with one carve-out: Telegram has never delivered a real
+message, because no credentials were supplied. Step 5 is therefore tested but not
+verified live, and it is the first item in `next-steps.md`. Everything else in
+the slice has been run against the live service it depends on.
