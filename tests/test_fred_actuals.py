@@ -31,9 +31,21 @@ class TestLevel:
         spec = SeriesSpec("ICSA", "level")
         assert extract_actual(MONTHLY, spec, date(2026, 9, 4)) == 105.8
 
-    def test_ignores_observations_dated_after_the_release(self):
+    def test_a_monthly_release_reports_the_previous_month(self):
+        """Released 15 July, a monthly series reports June - not July.
+
+        FRED dates an observation by its reference month, so a 2026-07-01
+        observation exists by the time we look but is not what the July release
+        measured. Reading it would shift every actual forward a month.
+        """
         spec = SeriesSpec("ICSA", "level")
-        assert extract_actual(MONTHLY, spec, date(2026, 7, 15)) == 105.5
+        assert extract_actual(MONTHLY, spec, date(2026, 7, 15)) == 105.0
+
+    def test_a_weekly_release_reports_the_period_just_ended(self):
+        """Weekly series are dated by period end, so they anchor on the day."""
+        spec = SeriesSpec("ICSA", "level", frequency="weekly")
+        weekly = [(date(2026, 8, 15), 220_000.0), (date(2026, 8, 22), 210_000.0)]
+        assert extract_actual(weekly, spec, date(2026, 8, 27)) == 210_000.0
 
     def test_scale_converts_units(self):
         """PERMIT is published in thousands; the feed quotes "1.42M"."""
@@ -147,6 +159,54 @@ class TestLevelAtOrAfter:
         assert extract_actual([(date(2026, 9, 15), 4.50)], spec, date(2026, 9, 16)) is None
 
 
+class TestReferenceMonth:
+    """The off-by-one-month bug found on the first live run of fred_actuals.
+
+    Values are the real CPIAUCSL index for 2026, so the expected m/m figures are
+    the ones the BLS actually published.
+    """
+
+    CPI = [
+        (date(2026, 1, 1), 326.588), (date(2026, 2, 1), 327.460),
+        (date(2026, 3, 1), 330.293), (date(2026, 4, 1), 332.407),
+        (date(2026, 5, 1), 333.979), (date(2026, 6, 1), 332.568),
+        (date(2026, 7, 1), 332.813),
+    ]
+
+    @pytest.mark.parametrize(
+        "released,expected",
+        [
+            ("2026-05-12", 0.6400),   # April
+            ("2026-06-10", 0.4729),   # May
+            ("2026-07-14", -0.4225),  # June
+            ("2026-08-12", 0.0737),   # July
+        ],
+    )
+    def test_each_release_reports_its_own_month(self, released, expected):
+        spec = SeriesSpec("CPIAUCSL", "pct_change_mom")
+        got = extract_actual(self.CPI, spec, date.fromisoformat(released))
+        assert got == pytest.approx(expected, abs=0.001)
+
+    def test_consecutive_releases_differ(self):
+        """The bug made every release of a series return the same number."""
+        spec = SeriesSpec("CPIAUCSL", "pct_change_mom")
+        values = [
+            extract_actual(self.CPI, spec, date.fromisoformat(d))
+            for d in ("2026-05-12", "2026-06-10", "2026-07-14", "2026-08-12")
+        ]
+        assert len(set(values)) == len(values)
+
+    def test_a_release_early_in_the_month_still_reports_the_month_before(self):
+        spec = SeriesSpec("PAYEMS", "diff", scale=1_000.0)
+        payrolls = [
+            (date(2026, 5, 1), 159_000.0),
+            (date(2026, 6, 1), 159_020.0),
+            (date(2026, 7, 1), 158_997.0),
+        ]
+        # Released 7 August, NFP reports July: 158997 - 159020 = -23 thousand.
+        assert extract_actual(payrolls, spec, date(2026, 8, 7)) == pytest.approx(-23_000.0)
+
+
 class TestSeriesMap:
     def test_lookup_is_case_insensitive(self):
         assert spec_for("CPI M/M") is spec_for("cpi m/m")
@@ -167,6 +227,15 @@ class TestSeriesMap:
     def test_an_invalid_transform_is_rejected_at_construction(self):
         with pytest.raises(ValueError):
             SeriesSpec("X", "sideways")
+
+    def test_an_invalid_frequency_is_rejected_at_construction(self):
+        with pytest.raises(ValueError):
+            SeriesSpec("X", "level", frequency="fortnightly")
+
+    def test_sub_monthly_series_are_marked_as_such(self):
+        """Anything not monthly must say so, or it reads the wrong period."""
+        assert SERIES_MAP["unemployment claims"].frequency == "weekly"
+        assert SERIES_MAP["fomc statement"].frequency == "daily"
 
     def test_payrolls_are_scaled_to_persons(self):
         """The feed's "165K" parses to 165000, so PAYEMS thousands need x1000."""

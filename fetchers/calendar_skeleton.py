@@ -179,13 +179,25 @@ def collect_schedule(api_key: str, start: date, end: date, stats: Stats) -> dict
     return schedule
 
 
-def sync(months: int = DEFAULT_MONTHS, *, dry_run: bool = False) -> Stats:
-    """Fetch the schedule and write the rows the skeleton owns."""
+def sync(
+    months: int = DEFAULT_MONTHS,
+    *,
+    months_back: int = 0,
+    dry_run: bool = False,
+) -> Stats:
+    """Fetch the schedule and write the rows the skeleton owns.
+
+    ``months_back`` extends the window into the past. FRED serves historical
+    release dates from the same endpoint, so this is how the event history is
+    seeded - both to give fred_actuals something to fill in, and as the
+    foundation the Stage 3 event study needs.
+    """
     stats = Stats("calendar_skeleton")
     api_key = config.require("FRED_API_KEY")
 
-    start = now_utc().date()
-    end = start + timedelta(days=round(months * 30.44))
+    today = now_utc().date()
+    start = today - timedelta(days=round(months_back * 30.44))
+    end = today + timedelta(days=round(months * 30.44))
     log.info("building skeleton for %s .. %s", start, end)
 
     schedule = collect_schedule(api_key, start, end, stats)
@@ -238,12 +250,16 @@ def main() -> None:
         help=f"how far ahead to schedule (default {DEFAULT_MONTHS})",
     )
     parser.add_argument(
+        "--months-back", type=int, default=0,
+        help="also load this many months of past release dates (default 0)",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="fetch and report, write nothing"
     )
     args = parser.parse_args()
 
     configure_logging()
-    sync(months=args.months, dry_run=args.dry_run)
+    sync(months=args.months, months_back=args.months_back, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

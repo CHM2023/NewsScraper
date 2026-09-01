@@ -7,8 +7,14 @@ same units before the surprise calculation means anything. Three things differ:
   publishes the index level. The change has to be computed.
 * **Scale.** ForexFactory quotes non-farm payrolls as "165K", which parsing
   turns into 165000. FRED's PAYEMS is in thousands, so its 165.0 needs x1000.
-* **Timing.** For a monthly release the right observation is the newest one
-  dated before the release. For a Fed decision it is the value *on* the day -
+* **Timing.** FRED dates an observation by its *reference period*, not by when
+  it was published, and a US macro release in month M reports month M-1. So the
+  CPI published on 12 May 2026 is April's figure, which FRED dates 2026-04-01 -
+  even though a 2026-05-01 observation also exists by the time we look. Reading
+  "the newest observation before the release date" therefore picks the wrong
+  month every time, which is why each spec records its ``frequency``: monthly
+  series anchor on the 1st of the release month, weekly and daily ones (dated by
+  period end) anchor on the day. For a Fed decision it is the value *on* the day -
   the point of the event is that the rate changes that afternoon.
 
 Anything not listed here is skipped by fred_actuals with a log line, which is
@@ -24,6 +30,11 @@ from dataclasses import dataclass
 TRANSFORMS = ("level", "diff", "pct_change_mom", "pct_change_yoy", "level_at_or_after")
 
 
+# How often the series is published. This decides which observation a release
+# reports, which is not the same question as which observation exists.
+FREQUENCIES = ("monthly", "weekly", "daily")
+
+
 @dataclass(frozen=True)
 class SeriesSpec:
     """One event title's route to an actual."""
@@ -31,11 +42,14 @@ class SeriesSpec:
     series_id: str
     transform: str = "level"
     scale: float = 1.0
+    frequency: str = "monthly"
     note: str = ""
 
     def __post_init__(self) -> None:
         if self.transform not in TRANSFORMS:
             raise ValueError(f"unknown transform {self.transform!r} for {self.series_id}")
+        if self.frequency not in FREQUENCIES:
+            raise ValueError(f"unknown frequency {self.frequency!r} for {self.series_id}")
 
 
 # Keyed by the canonical (ForexFactory) title, matched case-insensitively.
@@ -52,7 +66,9 @@ SERIES_MAP: dict[str, SeriesSpec] = {
     "non-farm employment change": SeriesSpec("PAYEMS", "diff", scale=1_000.0),
     "unemployment rate": SeriesSpec("UNRATE", "level"),
     "average hourly earnings m/m": SeriesSpec("CES0500000003", "pct_change_mom"),
-    "unemployment claims": SeriesSpec("ICSA", "level", note="initial claims, SA"),
+    "unemployment claims": SeriesSpec(
+        "ICSA", "level", frequency="weekly", note="initial claims, SA"
+    ),
 
     # --- Demand ----------------------------------------------------------
     "retail sales m/m": SeriesSpec("RSAFS", "pct_change_mom"),
@@ -60,8 +76,10 @@ SERIES_MAP: dict[str, SeriesSpec] = {
 
     # --- Rates -----------------------------------------------------------
     # The decision itself: read the target range's upper bound on the day.
-    "fomc statement": SeriesSpec("DFEDTARU", "level_at_or_after", note="target range, upper"),
-    "federal funds rate": SeriesSpec("DFEDTARU", "level_at_or_after"),
+    "fomc statement": SeriesSpec(
+        "DFEDTARU", "level_at_or_after", frequency="daily", note="target range, upper"
+    ),
+    "federal funds rate": SeriesSpec("DFEDTARU", "level_at_or_after", frequency="daily"),
 
     # --- Housing ---------------------------------------------------------
     # Published in thousands of units; the feed quotes e.g. "1.42M".

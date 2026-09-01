@@ -324,3 +324,55 @@ which is an ETF price, not spot gold.
 **Watch:** gold now has a single unpinned-upstream source. If Yahoo breaks again,
 `xau_close` goes null silently - `prices_daily` should grow a check that fails
 the run when gold coverage over the last 30 weekdays drops below a threshold.
+
+## 2026-09-01 — BUG FOUND LIVE (1 of 2): the observation cache ignored its window
+`fred_actuals` cached FRED observations under `(series_id, lookback)`, but the
+window it fetched was derived from the **first** event's date. Events are
+processed oldest-first, so every later event of the same series reused a window
+ending ~10 days after the oldest one - and `extract_actual` then found the same
+"newest observation before asof" every time. The first live run over four months
+of history gave **every** claims week 210000, **every** CPI month 0.4729, every
+NFP 63000. `errors=0` throughout.
+**Chosen:** resolve all events to their series first, then fetch one window per
+series spanning `[min(asof) - lookback, max(asof) + forward]` (`_fetch_windows`).
+One API call per series still, but a window that actually covers every date.
+**Rejected:** fetching per event (correct but one call per row) and keying the
+cache by window (would refetch almost every time).
+
+## 2026-09-01 — BUG FOUND LIVE (2 of 2): every monthly actual was a month late
+With the cache fixed the numbers varied, but they were still **wrong**: the CPI
+released 2026-05-12 was stored as 0.4729, which is *May's* m/m. A CPI release in
+May reports **April** (+0.6400). Cross-checking the stored values against the raw
+CPIAUCSL index showed every monthly release was off by one month.
+The cause is that FRED dates an observation by its **reference period**, not its
+publication date. By the time we query, a 2026-05-01 observation exists, so
+"newest observation dated before the release date" picks the month the release
+has not measured yet. The bug is invisible in a fixture built from a single
+release, which is why the unit tests missed it.
+**Chosen:** each `SeriesSpec` now records a `frequency`. Monthly series anchor on
+the **1st of the release month**, so a release in month M reads month M-1;
+weekly and daily series are dated by period end and still anchor on the day.
+Verified against the real 2026 index: releases on 12 May / 10 Jun / 14 Jul /
+12 Aug now yield +0.6400 / +0.4729 / -0.4225 / +0.0737, matching what the BLS
+published. `tests/test_fred_actuals.py::TestReferenceMonth` locks it in.
+**Rejected:** FRED's realtime/vintage parameters, which would be the most correct
+answer - ask what the series looked like *on* the release date - but cost one API
+call per event and are not needed while the reference-period rule holds.
+
+## 2026-09-01 — Historical events have no forecast, so no surprise
+Every backfilled event has `surprise = null`, because ForexFactory publishes only
+the current week and consensus history is not free - the concept doc's known risk
+1. This is the designed behaviour (the brief: do not compute surprise without a
+forecast), not a failure. The wiring was verified live by temporarily attaching a
+forecast of 0.2 to the 2026-08-12 CPI: actual 0.0737 gave surprise -3.0
+("below forecast", clamped from -6.3), stored correctly, and the temporary
+forecast was then reverted. Stage 3 will need a consensus history source before
+the surprise column is usable for anything historical.
+
+## 2026-09-01 — `calendar_skeleton --months-back`
+`fred_actuals` could not be verified at all: the skeleton only wrote future dates,
+so there were no past events to fill in. FRED serves historical release dates from
+the same endpoint. **Chosen:** a `--months-back` flag extending the window
+backwards, used here to seed four months. It is also the mechanism Stage 3's
+ten-year event backfill will use. **Rejected:** a throwaway script, which would
+have left the history in the database with no reproducible way to regenerate it.

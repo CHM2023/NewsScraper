@@ -9,7 +9,7 @@ Status values: todo / in progress / done / blocked.
 | 3 | Annual calendar skeleton | done, VERIFIED LIVE | 46 rows written from live FRED+Fed; times correct (NFP 12:30Z, FOMC 18:00Z) | FRED only publishes release dates to year end - 4 months, not 12 |
 | 4 | ForexFactory weekly sync + diff | done, VERIFIED LIVE | 27 USD rows; 25 new + 2 merged onto skeleton rows; zero duplicate (date,title) pairs | next-week feed still 404, so forecasts cover ~1 week |
 | 5 | Telegram notifications + reminders | done | 35 tests; send never raises, reminders fire once | No Telegram credentials, so no live delivery test |
-| 6 | Actuals from FRED + surprise | done | 28 tests covering all five transforms | ISM unmapped by design; some FRED series ids unverified against the live API |
+| 6 | Actuals from FRED + surprise | done, VERIFIED LIVE | 39 historical events filled; CPI/PPI/NFP/PCE cross-checked against raw FRED; surprise wiring verified | No consensus history, so surprise is null for backfilled events |
 | 7 | Daily prices + 10y backfill + regime | done, VERIFIED LIVE | 3651 price rows 2016-2026, 2512 gold closes; regimes correct across history | gold depends solely on yfinance GC=F; dxy is the Fed broad index |
 | 8 | GitHub Actions workflows | done | 44 tests guard module names, secrets, crons and step order | Cannot run in GitHub Actions until the repo is pushed and secrets added |
 | 9 | Web: Today / This week | done | 39 web tests + live uvicorn check; HTMX polls every 300s; all data-utc verified UTC | Shows empty state until Supabase is configured |

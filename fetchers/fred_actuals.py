@@ -77,8 +77,16 @@ def extract_actual(
                 return value * spec.scale
         return None
 
-    # Everything else reads the newest observation published before the release.
-    before = [(d, v) for d, v in points if d < asof]
+    # Everything else reads the newest observation published before the release -
+    # but "before" is not the release date for a monthly series. FRED dates a
+    # monthly observation by its *reference month*, and a US macro release in
+    # month M reports month M-1. Anchoring on the release date would pick up the
+    # observation dated the 1st of the release month, which is the month the
+    # release has not measured yet: the CPI published on 12 May 2026 reports
+    # April, not May. Anchoring on the 1st of the release month fixes that.
+    # Weekly and daily series are dated by period end, so they anchor on the day.
+    cutoff = asof.replace(day=1) if spec.frequency == "monthly" else asof
+    before = [(d, v) for d, v in points if d < cutoff]
     if not before:
         return None
     current_date, current = before[-1]
@@ -122,6 +130,43 @@ def _spec_for_event(title: str) -> SeriesSpec | None:
     return spec_for(alias) if alias else None
 
 
+def _fetch_windows(
+    pairs: list[tuple[dict, "SeriesSpec"]], api_key: str, stats: Stats
+) -> dict[str, list[tuple[date, float | None]]]:
+    """One observation window per series, spanning every event that needs it.
+
+    The window runs from the earliest event's date minus that series' lookback
+    to the latest event's date plus the forward window, so a run covering four
+    months of releases still gives each one its own reference period.
+    """
+    spans: dict[str, tuple[date, date, int]] = {}
+    for event, spec in pairs:
+        asof = event["ts_utc"].date()
+        lookback = LOOKBACK_DAYS.get(spec.transform, 200)
+        first, last, widest = spans.get(spec.series_id, (asof, asof, lookback))
+        spans[spec.series_id] = (
+            min(first, asof), max(last, asof), max(widest, lookback)
+        )
+
+    windows: dict[str, list[tuple[date, float | None]]] = {}
+    for series_id, (first, last, lookback) in sorted(spans.items()):
+        start = first - timedelta(days=lookback)
+        end = last + timedelta(days=FORWARD_WINDOW_DAYS)
+        try:
+            windows[series_id] = fred.fetch_observations(
+                series_id, api_key=api_key, start=start, end=end
+            )
+        except Exception as exc:
+            stats.errors += 1
+            log.exception("fetching %s failed: %s", series_id, exc)
+            windows[series_id] = []
+        log.info(
+            "%-16s %4d observations %s .. %s",
+            series_id, len(windows[series_id]), start, end,
+        )
+    return windows
+
+
 def run(days: int = DEFAULT_DAYS, *, dry_run: bool = False) -> Stats:
     stats = Stats("fred_actuals")
     api_key = config.require("FRED_API_KEY")
@@ -132,33 +177,26 @@ def run(days: int = DEFAULT_DAYS, *, dry_run: bool = False) -> Stats:
     stats.fetched = len(events)
     log.info("%d event(s) in the last %d days still missing an actual", len(events), days)
 
-    # One fetch per series per run, however many events reference it.
-    cache: dict[tuple[str, int], list[tuple[date, float | None]]] = {}
-
+    # Resolve every event to a series first, so each series can be fetched once
+    # over a window that covers *all* the dates referencing it. Fetching per
+    # event would work but costs one API call each; caching a window derived
+    # from a single event does not - the first event's window would be reused
+    # for every later date and hand them all the same stale observation.
+    pairs: list[tuple[dict, SeriesSpec]] = []
     for event in events:
-        title = event["title"]
-        spec = _spec_for_event(title)
+        spec = _spec_for_event(event["title"])
         if spec is None:
             stats.skipped += 1
-            log.info("skip %-32s %s", title, reason_unmapped(title))
+            log.info("skip %-32s %s", event["title"], reason_unmapped(event["title"]))
             continue
+        pairs.append((event, spec))
 
+    cache = _fetch_windows(pairs, api_key, stats)
+
+    for event, spec in pairs:
+        title = event["title"]
         asof = event["ts_utc"].date()
-        lookback = LOOKBACK_DAYS.get(spec.transform, 200)
-        key = (spec.series_id, lookback)
-        if key not in cache:
-            try:
-                cache[key] = fred.fetch_observations(
-                    spec.series_id,
-                    api_key=api_key,
-                    start=asof - timedelta(days=lookback),
-                    end=asof + timedelta(days=FORWARD_WINDOW_DAYS),
-                )
-            except Exception as exc:
-                stats.errors += 1
-                log.exception("%s: fetching %s failed: %s", title, spec.series_id, exc)
-                cache[key] = []
-        observations = cache[key]
+        observations = cache.get(spec.series_id, [])
 
         try:
             actual = extract_actual(observations, spec, asof)
