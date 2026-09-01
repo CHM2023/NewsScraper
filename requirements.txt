@@ -19,3 +19,6 @@ tzdata==2024.2
 # Postgres wire protocol, for applying sql/*.sql. PostgREST cannot run DDL
 # and psql is not on the owner's PATH. Used only by scripts/apply_schema.py.
 psycopg[binary]==3.2.3
+# RSS headline collection. Pure Python, no compiled extension, and tolerant of
+# the malformed XML several financial feeds ship.
+feedparser==6.0.14

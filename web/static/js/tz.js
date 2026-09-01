@@ -38,6 +38,22 @@
     hour12: false
   });
 
+  // "14 min ago". Used for headlines, where how long ago a story broke is the
+  // only thing worth knowing and an absolute clock time makes the reader do
+  // the arithmetic. The absolute value stays in the title attribute below.
+  function relative(value, now) {
+    var seconds = Math.round((now - value) / 1000);
+    if (seconds < 0) { return 'just now'; }
+    if (seconds < 60) { return seconds + ' sec ago'; }
+    var minutes = Math.round(seconds / 60);
+    if (minutes < 60) { return minutes + ' min ago'; }
+    var hours = Math.round(minutes / 60);
+    if (hours < 24) { return hours + (hours === 1 ? ' hour ago' : ' hours ago'); }
+    var days = Math.round(hours / 24);
+    if (days < 7) { return days + (days === 1 ? ' day ago' : ' days ago'); }
+    return dateFormat.format(value);
+  }
+
   function render(element) {
     var raw = element.getAttribute('data-utc');
     if (!raw) { return; }
@@ -50,9 +66,13 @@
     }
 
     var now = new Date();
-    element.textContent = isToday(value, now)
-      ? timeOnly.format(value) + ' today'
-      : dateFormat.format(value);
+    if (element.hasAttribute('data-relative')) {
+      element.textContent = relative(value, now);
+    } else {
+      element.textContent = isToday(value, now)
+        ? timeOnly.format(value) + ' today'
+        : dateFormat.format(value);
+    }
 
     // The UTC value stays available on hover, which matters when comparing
     // against a broker platform that shows exchange time.

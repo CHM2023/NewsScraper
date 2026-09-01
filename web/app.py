@@ -44,6 +44,8 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 # How far ahead the "this week" page looks, and how many past releases it shows.
 UPCOMING_DAYS = 7
 RECENT_LIMIT = 10
+# How many headlines the Today column shows.
+HEADLINE_LIMIT = 20
 
 # The calendar refuses absurd ranges rather than trying to serve them.
 MAX_RANGE_DAYS = 400
@@ -80,6 +82,12 @@ def _today_context() -> dict:
         lambda: repo.fetch_recent_releases(now, limit=RECENT_LIMIT), []
     )
 
+    # A failing headlines table must not take the calendar down with it, so this
+    # gets its own _safe and its warning is not merged into the page banner.
+    headline_rows, _ = _safe(
+        lambda: repo.fetch_recent_headlines(limit=HEADLINE_LIMIT), []
+    )
+
     window = active_window(now, upcoming_rows) or next_window(now, upcoming_rows)
     blackout = presenters.blackout_view(window, now) if window else None
 
@@ -88,6 +96,7 @@ def _today_context() -> dict:
         "upcoming": presenters.event_views(upcoming_rows),
         "recent": presenters.event_views(recent_rows),
         "summary": presenters.summarise(upcoming_rows),
+        "headlines": presenters.headline_views(headline_rows),
         "blackout": blackout,
         "upcoming_days": UPCOMING_DAYS,
         "warning": warning or recent_warning,

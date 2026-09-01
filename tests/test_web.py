@@ -66,7 +66,19 @@ def stocked(monkeypatch):
         web_app.repo, "fetch_short_titles",
         lambda **kw: {"non-farm employment change": "NFP"},
     )
-    return {"upcoming": upcoming, "past": past}
+    headline = {
+        "id": "abc123",
+        "source": "MarketWatch",
+        "ts_utc": now_utc() - timedelta(minutes=14),
+        "title": "Gold slips as the dollar firms after jobless claims",
+        "url": "https://example.invalid/gold-slips",
+        "category": None,
+        "score": None,
+    }
+    monkeypatch.setattr(
+        web_app.repo, "fetch_recent_headlines", lambda **kw: [headline]
+    )
+    return {"upcoming": upcoming, "past": past, "headline": headline}
 
 
 @pytest.fixture
@@ -78,7 +90,7 @@ def unconfigured(monkeypatch):
 
     for name in (
         "fetch_events_between", "fetch_recent_releases", "fetch_event",
-        "fetch_event_weights", "fetch_short_titles",
+        "fetch_event_weights", "fetch_short_titles", "fetch_recent_headlines",
     ):
         monkeypatch.setattr(web_app.repo, name, missing)
 
@@ -158,6 +170,33 @@ class TestPartial:
         assert response.status_code == 200
         assert "<html" not in response.text.lower()
         assert "CPI m/m" in response.text
+
+
+class TestHeadlines:
+    def test_the_column_shows_a_headline(self, client, stocked):
+        body = client.get("/").text
+        assert "Gold slips as the dollar firms" in body
+        assert "MarketWatch" in body
+
+    def test_it_links_out_safely(self, client, stocked):
+        body = client.get("/").text
+        assert 'href="https://example.invalid/gold-slips"' in body
+        assert 'rel="noopener noreferrer"' in body
+
+    def test_the_time_is_relative_and_converted_in_the_browser(self, client, stocked):
+        """The server must not format "14 min ago" itself - tz.js does it."""
+        body = client.get("/").text
+        assert "data-relative" in body
+        assert "min ago" not in body
+
+    def test_it_appears_in_the_htmx_partial_too(self, client, stocked):
+        assert "Gold slips as the dollar firms" in client.get("/partials/today").text
+
+    def test_an_empty_table_does_not_break_the_page(self, client, monkeypatch, stocked):
+        monkeypatch.setattr(web_app.repo, "fetch_recent_headlines", lambda **kw: [])
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "No headlines yet" in response.text
 
 
 class TestCalendarPage:

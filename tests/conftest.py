@@ -122,3 +122,30 @@ def telegram_on(monkeypatch):
     """Configure a bot, so send() and the fetchers attempt delivery."""
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+
+
+@pytest.fixture(autouse=True)
+def _no_real_database(monkeypatch):
+    """Fail loudly if a test tries to build a real Supabase client.
+
+    CLAUDE.md forbids a test touching the network, but the failure is silent:
+    with a populated .env on the developer's machine the client builds happily
+    and the call goes out, so the suite passes locally and only the timing
+    looks odd. It has caught three separate routes now - fetch_short_titles,
+    fetch_recent_headlines, and whatever comes next - each added to web.app
+    without a matching fake in the fixtures.
+
+    Tests that want a database pass their own fake through the ``client``
+    argument every db.repo function accepts, which never reaches this.
+    """
+    def refuse(*args, **kwargs):
+        raise AssertionError(
+            "a test tried to build a real Supabase client. Monkeypatch the "
+            "db.repo function it calls, or pass a fake client= to it."
+        )
+
+    # db.repo does `from db.client import get_client`, so it holds its own
+    # reference - patching only the source module leaves repo's copy live,
+    # which is exactly how this went unnoticed the first time.
+    monkeypatch.setattr("db.client.get_client", refuse)
+    monkeypatch.setattr("db.repo.get_client", refuse)

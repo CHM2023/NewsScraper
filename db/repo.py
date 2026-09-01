@@ -20,6 +20,7 @@ EVENTS = "events"
 EVENT_WEIGHTS = "event_weights"
 PRICES_DAILY = "prices_daily"
 NOTIFICATIONS_LOG = "notifications_log"
+HEADLINES = "headlines"
 
 # PostgREST rejects very large payloads; upserts go up in chunks of this size.
 CHUNK = 500
@@ -99,6 +100,67 @@ def fetch_short_titles(client: Any | None = None) -> dict[str, str]:
         for r in rows
         if r.get("short_title")
     }
+
+
+# ---------------------------------------------------------------------------
+# headlines
+# ---------------------------------------------------------------------------
+def upsert_headlines(rows: Sequence[dict], client: Any | None = None) -> int:
+    """Insert or update headlines by primary key (a hash of the url)."""
+    if not rows:
+        return 0
+    written = 0
+    for chunk in _chunks(list(rows)):
+        _t(HEADLINES, client).upsert(list(chunk), on_conflict="id").execute()
+        written += len(chunk)
+    return written
+
+
+def fetch_headline_fingerprints(
+    since: datetime, client: Any | None = None
+) -> tuple[set[str], set[str]]:
+    """``(urls, normalised titles)`` already stored since ``since``.
+
+    Only these two columns are read: the collector needs to know what it has
+    seen, not what it said. Returns empty sets rather than raising if
+    ``sql/004_headlines.sql`` has not been applied, so the fetcher degrades to
+    "store everything, deduplicate within the batch" instead of failing.
+    """
+    try:
+        rows = _fetch_paged(
+            lambda: _t(HEADLINES, client)
+            .select("url, title_norm")
+            .gte("ts_utc", iso_utc(since, field="since"))
+            .order("ts_utc")
+            .order("url")
+        )
+    except Exception as exc:
+        log.warning(
+            "headline fingerprints unavailable (%s); apply sql/004_headlines.sql. "
+            "Deduplicating within this batch only.", type(exc).__name__
+        )
+        return set(), set()
+    urls = {r["url"] for r in rows if r.get("url")}
+    titles = {r["title_norm"] for r in rows if r.get("title_norm")}
+    return urls, titles
+
+
+def fetch_recent_headlines(
+    limit: int = 20, client: Any | None = None
+) -> list[dict]:
+    """The newest headlines for the Today page. Newest first."""
+    try:
+        res = (
+            _t(HEADLINES, client)
+            .select("*")
+            .order("ts_utc", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        log.warning("headlines unavailable (%s)", type(exc).__name__)
+        return []
+    return list(res.data or [])
 
 
 # ---------------------------------------------------------------------------

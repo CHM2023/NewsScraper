@@ -80,3 +80,33 @@
     <p class="empty muted">No past releases stored yet.</p>
   {% endif %}
 </section>
+
+{# ---------------------------------------------------------------------------
+   Headlines. Collection and display only - what the market is reading, beside
+   the calendar of what it is waiting for.
+   STAGE 2: each row gains a category chip and an impact score here once the
+   Claude Haiku classifier fills headlines.category and headlines.score.
+   --------------------------------------------------------------------------- #}
+<h2>Headlines</h2>
+{% if headlines %}
+  <ul class="headlines">
+    {% for item in headlines %}
+      <li>
+        <span class="hl-meta muted">
+          <span class="hl-source">{{ item.source }}</span>
+          <time data-utc="{{ item.ts_utc }}" data-relative></time>
+        </span>
+        {% if item.url %}
+          <a class="hl-title" href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a>
+        {% else %}
+          <span class="hl-title">{{ item.title }}</span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="muted empty">
+    No headlines yet. <code>python -m fetchers.headlines</code> fills this;
+    it needs <code>sql/004_headlines.sql</code> applied first.
+  </p>
+{% endif %}

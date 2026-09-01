@@ -1,0 +1,28 @@
+# Every fifteen minutes: pull the four RSS feeds, deduplicate, and store what is
+# new. Nothing here classifies anything - category and score are Stage 2.
+#
+# A feed that is down, slow or serving malformed XML is counted and skipped, so
+# a run still stores what the other three returned.
+name: headlines
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: headlines
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/python-env
+      - name: headlines
+        run: python -m fetchers.headlines

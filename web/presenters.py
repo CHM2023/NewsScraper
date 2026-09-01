@@ -167,6 +167,30 @@ def event_views(
     return [event_view(row, short_titles) for row in rows]
 
 
+def headline_view(row: dict) -> dict:
+    """One headline as the Today page wants it.
+
+    Like every other timestamp on the site the server emits UTC only; the
+    template stamps it into ``data-utc`` and tz.js turns it into "14 min ago".
+    """
+    ts = row.get("ts_utc")
+    ts = ts if isinstance(ts, datetime) else parse_iso(ts, field="headlines.ts_utc")
+    return {
+        "id": row.get("id", ""),
+        "title": row.get("title", ""),
+        "url": row.get("url") or "",
+        "source": row.get("source") or "unknown",
+        "ts_utc": iso_utc(ts, field="headlines.ts_utc"),
+        # STAGE 2: category and score stay None until the Haiku classifier runs.
+        "category": row.get("category"),
+        "score": row.get("score"),
+    }
+
+
+def headline_views(rows: Iterable[dict]) -> list[dict]:
+    return [headline_view(row) for row in rows]
+
+
 def calendar_event(row: dict, short_titles: dict[str, str] | None = None) -> dict:
     """One event in the shape FullCalendar's JSON feed expects."""
     view = event_view(row, short_titles)

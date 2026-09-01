@@ -683,3 +683,54 @@ nothing is missing an actual, before any FRED call, and `--fomc-only` narrows
 that to the two FOMC titles that carry a number (statement and target range;
 the press conference and the projections have no single figure). Measured on a
 non-FOMC day: 3.8 seconds end to end including interpreter start.
+
+## 2026-09-01 — RSS feeds: two of the four named in the concept doc are gone
+Every candidate was fetched before being committed. Results on 2026-09-01:
+
+| Feed | Result | Kept? |
+|---|---|---|
+| MarketWatch Market Pulse | HTTP 200, 30 entries | yes |
+| CNBC Markets | HTTP 200, 30 entries | yes |
+| **Kitco** | every path 404s; `/news/rss/KitcoNews.xml` 301s to the HTML news page | **dropped** |
+| **Reuters commodities** | HTTP 401; the feedburner mirror no longer resolves | **dropped** |
+| Yahoo Finance `GC=F` | HTTP 200, 18 entries, gold-specific | **added** |
+| FXStreet news | HTTP 200, 30 entries, macro/FX | **added** |
+Also rejected: Investing.com (404), Mining.com (403), Seeking Alpha (7 entries,
+mostly ETF notices).
+Kitco was the only gold-dedicated source in the brief, so **Yahoo's gold futures
+feed replaces it** - it is the one free feed that is actually about gold, and it
+delivered "Gold prices dip despite notching best month since Feb" and "RBC
+forecasts gold could reach $4,929 an ounce" on the first run. FXStreet replaces
+Reuters for macro, which is what actually moves gold.
+**Watch:** gold prices already depend solely on Yahoo (`GC=F` via yfinance), and
+now the gold-specific headline feed does too. Two unrelated failures would both
+be Yahoo's.
+
+## 2026-09-01 — Headlines: deduplicate twice, and never date an entry "now"
+The same story arrives repeatedly, in two different ways, so there are two
+passes. **By url**, because a feed re-lists its whole contents on every poll and
+a 15-minute cron would otherwise insert all 108 rows every time. **By normalised
+title** - lowercased, punctuation stripped, the trailing " - Outlet" suffix
+removed - because two outlets carry one story under wording that differs by a
+comma, and each links to its own copy so url matching cannot see it.
+The batch is sorted newest-first before deduplication, so when two feeds carry
+one story the fresher copy is the one kept.
+**An entry with no parseable date is skipped, not stamped with `now`.** Dating
+it now would float a week-old story to the top of a column whose entire value is
+"what just broke".
+`category` and `score` stay null: classification is Stage 2. The template
+carries a `STAGE 2:` marker where the chip and score will go.
+
+## 2026-09-01 — An autouse guard against tests reaching Supabase
+CLAUDE.md forbids a test touching the network, but the failure was silent: with
+a populated `.env` the client builds happily and the call goes out, so the suite
+passes locally and only a stray DeprecationWarning hints at it. It has now
+happened three times - `fetch_short_titles`, `fetch_recent_headlines`, and the
+one inline test that patched two repo functions but not the third.
+**Chosen:** an autouse fixture in `conftest.py` that replaces `get_client` with
+something that raises. It patches **both** `db.client.get_client` and
+`db.repo.get_client`: `db.repo` does `from db.client import get_client`, so it
+holds its own reference and patching only the source module leaves repo's copy
+live - which is why the first attempt at this guard changed nothing.
+Tests that want a database still pass a fake through the `client=` argument
+every `db.repo` function accepts, which never reaches the guard.

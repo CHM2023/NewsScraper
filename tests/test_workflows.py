@@ -37,7 +37,7 @@ class TestWorkflowsExist:
         assert {
             "actuals-hot.yml", "actuals-fomc.yml", "actuals-catchup.yml",
             "ff-sync.yml", "reminders.yml", "prices-daily.yml",
-            "calendar-skeleton.yml",
+            "calendar-skeleton.yml", "headlines.yml",
         } <= names
 
     def test_each_has_a_schedule_or_is_the_test_workflow(self):
@@ -124,6 +124,7 @@ class TestSchedules:
         "reminders.yml": "*/5 * * * *",
         "prices-daily.yml": "30 21 * * 1-5",
         "calendar-skeleton.yml": "0 6 * * *",
+        "headlines.yml": "*/15 * * * *",
     }
 
     @pytest.mark.parametrize("name,cron", sorted(EXPECTED.items()))
