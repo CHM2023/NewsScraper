@@ -565,3 +565,35 @@ a day carrying more than five weight-5 events - a Fed decision day (4) coincidin
 with a CPI release (3) would do it. That is not "low-value rows crowding out the
 ones that matter", it is a genuinely overloaded day, and "+N more" still exposes
 them. Left alone rather than special-cased.
+
+## 2026-09-01 — Minimum-weight dropdown, filtered in the browser
+The "show low-impact" checkbox hid weight 1 **on load**, so a first-time visitor
+saw a calendar that was quietly missing rows. Replaced with a `Show:` dropdown -
+5 only / 4 and above / 3 and above / 2 and above / 1 and above (everything) -
+defaulting to **everything**. Nothing is hidden unless the reader asks.
+The choice persists in `localStorage` under `xau.minWeight`; the old
+`xau.showLowImpact` key is deleted on load so a stale boolean cannot linger with
+no meaning. A first-time visitor with no stored value always gets everything.
+
+**Filtering is client-side, and `/api/events` stays unfiltered.** Reasons, in
+order of weight:
+1. The badge has to say how many rows are being held back, which needs the
+   unfiltered total for the visible range. Server-side filtering would need a
+   second request or a count header to say the same thing.
+2. Changing the filter is then instant and needs no round trip.
+3. `/api/events` stays a plain representation of the data rather than one that
+   varies with a piece of view state, which keeps it cacheable and keeps the
+   tests describing data rather than UI.
+A month is tens of rows, so there is nothing to gain by moving the work.
+Because the filter runs inside the feed callback, month, week and list views all
+inherit it without knowing it exists.
+
+**BUG FOUND WHILE TESTING: the hidden count went stale on a view change.**
+It was computed inside the fetch callback, but FullCalendar reuses cached events
+when the new range sits inside the fetched one - switching month -> week does not
+re-run the callback, so the badge kept reporting the month's number (37 hidden
+against a week holding 26). Moved to an `updateBadge()` driven by `datesSet`,
+which fires on every render, navigation and view change, and counts against the
+range actually on screen. Verified over CDP: first visit shows 48 events and no
+badge; 5/4/3/2/1 give 39/37/23/23/0 hidden; the choice survives a reload; and
+week and list recompute their own counts.

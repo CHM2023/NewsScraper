@@ -11,9 +11,17 @@
 {% block content %}
   <div class="calendar-head">
     <h1>Calendar</h1>
-    <label class="toggle">
-      <input type="checkbox" id="show-low"> show low-impact
-    </label>
+    <div class="filter">
+      <label for="min-weight">Show:</label>
+      <select id="min-weight">
+        <option value="5">5 only</option>
+        <option value="4">4 and above</option>
+        <option value="3">3 and above</option>
+        <option value="2">2 and above</option>
+        <option value="1" selected>1 and above &mdash; everything</option>
+      </select>
+      <span id="hidden-count" class="hidden-count muted" hidden></span>
+    </div>
   </div>
 
   <p class="legend muted">
@@ -33,16 +41,45 @@
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       var panel = document.getElementById('event-panel');
-      var toggle = document.getElementById('show-low');
-      var STORAGE_KEY = 'xau.showLowImpact';
+      var select = document.getElementById('min-weight');
+      var counter = document.getElementById('hidden-count');
+      var STORAGE_KEY = 'xau.minWeight';
+      var LEGACY_KEY = 'xau.showLowImpact';
 
-      // Weight-1 rows (crude oil inventories, vehicle sales, the API bulletin)
-      // outnumber the ones that move gold about four to one, and on a busy day
-      // they pushed the weight-5 row out of sight. Hidden by default; the
-      // choice is remembered so it does not have to be made every visit.
-      var showLow = false;
-      try { showLow = localStorage.getItem(STORAGE_KEY) === '1'; } catch (err) { showLow = false; }
-      toggle.checked = showLow;
+      // Nothing is hidden unless the reader asks for it: the default is
+      // everything, and the previous build's "weight 1 hidden on load" was
+      // making empty-looking days that were not actually empty. The choice is
+      // remembered, but a first-time visitor always sees the full calendar.
+      var minWeight = 1;
+      try {
+        var stored = localStorage.getItem(STORAGE_KEY);
+        if (stored !== null && /^[1-5]$/.test(stored)) { minWeight = parseInt(stored, 10); }
+        // The old boolean key would otherwise sit there for ever meaning nothing.
+        localStorage.removeItem(LEGACY_KEY);
+      } catch (err) { minWeight = 1; }
+      select.value = String(minWeight);
+
+      // Every event the feed returned for the range currently loaded, filter or
+      // no filter, plus the range the view is actually showing. The badge is
+      // computed from these rather than inside the fetch callback: FullCalendar
+      // reuses cached events when you switch month -> week, so the callback does
+      // not run and the count would still be reporting the month's number.
+      var fetched = [];
+      var viewFrom = null;
+      var viewTo = null;
+
+      function updateBadge() {
+        if (!viewFrom || !viewTo) { return; }
+        var hidden = 0;
+        for (var i = 0; i < fetched.length; i++) {
+          var when = new Date(fetched[i].start);
+          if (when < viewFrom || when >= viewTo) { continue; }
+          var w = (fetched[i].extendedProps && fetched[i].extendedProps.weight) || 1;
+          if (w < minWeight) { hidden++; }
+        }
+        counter.textContent = hidden + ' hidden';
+        counter.hidden = hidden === 0;
+      }
 
       // Month is the right default on a desktop, but at phone width a month
       // grid is unreadable - the list view was clearly better in testing.
@@ -137,11 +174,23 @@
                 success([]);
                 return;
               }
-              success(showLow ? data : data.filter(function (e) {
-                return (e.extendedProps && e.extendedProps.weight || 1) > 1;
+              fetched = data;
+              // An empty day must never be ambiguous: say how many rows the
+              // filter is holding back for the range currently on screen.
+              updateBadge();
+              success(data.filter(function (e) {
+                return ((e.extendedProps && e.extendedProps.weight) || 1) >= minWeight;
               }));
             })
             .catch(failure);
+        },
+
+        // Fires on first render and on every navigation or view change, which
+        // is the only reliable moment to know what range is on screen.
+        datesSet: function (info) {
+          viewFrom = info.start;
+          viewTo = info.end;
+          updateBadge();
         },
 
         eventClick: function (info) {
@@ -154,9 +203,11 @@
         }
       });
 
-      toggle.addEventListener('change', function () {
-        showLow = toggle.checked;
-        try { localStorage.setItem(STORAGE_KEY, showLow ? '1' : '0'); } catch (err) { /* private mode */ }
+      select.addEventListener('change', function () {
+        minWeight = parseInt(select.value, 10) || 1;
+        try { localStorage.setItem(STORAGE_KEY, String(minWeight)); } catch (err) { /* private mode */ }
+        // Refetching re-runs the filter above, so month, week and list views
+        // all pick the change up without knowing anything about it.
         calendar.refetchEvents();
       });
 

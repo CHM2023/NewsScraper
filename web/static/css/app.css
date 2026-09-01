@@ -152,16 +152,32 @@ time { white-space: nowrap; font-variant-numeric: tabular-nums; }
 }
 .calendar-head h1 { margin-bottom: 0.5rem; }
 
-.toggle {
+.filter {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   font-size: 0.85rem;
   color: var(--muted);
-  cursor: pointer;
-  user-select: none;
 }
-.toggle input { cursor: pointer; }
+.filter label { cursor: default; }
+.filter select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+}
+.filter select:hover { border-color: var(--muted); }
+/* Only rendered when the filter is actually holding something back, so an
+   empty-looking day can always be explained. */
+.hidden-count {
+  font-size: 0.8rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 10px;
+  background: #eceff3;
+}
 
 #calendar {
   background: var(--panel);

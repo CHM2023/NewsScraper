@@ -187,10 +187,30 @@ class TestCalendarPage:
         assert "biggest gold movers" in body
         assert "major, tradeable" in body
 
-    def test_it_hides_low_impact_events_by_default(self, client, stocked):
+    def test_it_offers_a_minimum_weight_filter(self, client, stocked):
         body = client.get("/calendar").text
-        assert 'id="show-low"' in body
-        assert "showLow" in body
+        assert 'id="min-weight"' in body
+        for label in ("5 only", "4 and above", "3 and above", "2 and above"):
+            assert label in body, label
+
+    def test_nothing_is_filtered_out_by_default(self, client, stocked):
+        """A first-time visitor sees every event; the old build hid weight 1."""
+        body = client.get("/calendar").text
+        assert '<option value="1" selected>' in body
+        assert "var minWeight = 1;" in body
+
+    def test_it_reports_how_many_rows_are_hidden(self, client, stocked):
+        body = client.get("/calendar").text
+        assert 'id="hidden-count"' in body
+        assert "' hidden'" in body
+
+    def test_high_weight_events_are_never_the_collapsed_ones(self, client, stocked):
+        """"+N more" must hold the lightest events of the day, not the heaviest.
+
+        The whole guarantee is this one config line, so it is asserted rather
+        than left to be rediscovered from a screenshot.
+        """
+        assert "eventOrder: '-weight," in client.get("/calendar").text
 
     def test_it_collapses_busy_days(self, client, stocked):
         assert "dayMaxEvents" in client.get("/calendar").text
