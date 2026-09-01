@@ -12,11 +12,10 @@ Two modes:
 * no arguments - incremental, picking up from the newest date already stored
   with a few days of overlap so a revised observation is corrected.
 
-Gold comes from FRED's LBMA series when that is current, and from yfinance's
-``GC=F`` otherwise; the LBMA series has been discontinued once already, so the
-fallback is not hypothetical. Whichever source answers, the values are merged
-per date with FRED preferred, and the row is only written for dates that have at
-least one value.
+Gold comes from yfinance's ``GC=F``. FRED withdrew both LBMA gold series and
+publishes no free daily spot price any more, so what was designed as a fallback
+is now the only source - see FRED_GOLD_SERIES below and decisions.md. A row is
+written for any date with at least one value.
 
 Run: ``python -m fetchers.prices_daily [--backfill-years 10] [--dry-run]``
 """
@@ -38,15 +37,24 @@ from fetchers.regime import classify_regime
 
 log = logging.getLogger("fetchers.prices_daily")
 
-# column -> FRED series id
+# Every column a row can carry, in display order.
+PRICE_COLUMNS: tuple[str, ...] = ("xau_close", "dxy", "real_yield_10y", "fed_funds")
+
+# column -> FRED series id, for the columns FRED still publishes.
 FRED_SERIES: dict[str, str] = {
-    # LBMA Gold Price, PM fix, USD. Preferred when current.
-    "xau_close": "GOLDPMGBD228NLBM",
     # The Fed's broad trade-weighted dollar index. Not ICE DXY - see decisions.md.
     "dxy": "DTWEXBGS",
     "real_yield_10y": "DFII10",
     "fed_funds": "DFF",
 }
+
+# FRED withdrew both LBMA gold series over ICE licensing: as of 2026-09-01
+# GOLDPMGBD228NLBM and GOLDAMGBD228NLBM both return
+# "400 Bad Request. The series does not exist.", and a search of FRED turns up no
+# free daily spot gold series at all - only volatility indices. Gold therefore
+# comes from Yahoo. Set this back to a series id if FRED ever publishes one
+# again and it will be preferred, with Yahoo filling the gaps.
+FRED_GOLD_SERIES: str | None = None
 
 # Yahoo tickers used when FRED cannot supply a column.
 YAHOO_GOLD = "GC=F"
@@ -138,16 +146,21 @@ def collect_prices(
     for column, series_id in FRED_SERIES.items():
         columns[column] = _fred_column(column, series_id, api_key, start, end, stats)
 
-    # Gold: fall back to Yahoo when the LBMA series is missing or stale.
-    if _is_stale(columns["xau_close"], end):
-        log.warning(
-            "FRED gold series %s is empty or stale, falling back to %s",
-            FRED_SERIES["xau_close"], YAHOO_GOLD,
-        )
-        stats.note(f"gold from {YAHOO_GOLD}, FRED LBMA unavailable or stale")
-        fallback = _yahoo_close(YAHOO_GOLD, start, end, stats)
+    # Gold. FRED is only consulted if a series id is configured; see the note on
+    # FRED_GOLD_SERIES. Yahoo fills whatever FRED cannot supply.
+    gold: dict[date, float] = {}
+    if FRED_GOLD_SERIES:
+        gold = _fred_column("xau_close", FRED_GOLD_SERIES, api_key, start, end, stats)
+    if _is_stale(gold, end):
+        if FRED_GOLD_SERIES:
+            log.warning(
+                "FRED gold series %s is empty or stale, falling back to %s",
+                FRED_GOLD_SERIES, YAHOO_GOLD,
+            )
+        stats.note(f"gold from {YAHOO_GOLD}")
         # FRED values win where both exist; Yahoo fills the rest.
-        columns["xau_close"] = {**fallback, **columns["xau_close"]}
+        gold = {**_yahoo_close(YAHOO_GOLD, start, end, stats), **gold}
+    columns["xau_close"] = gold
 
     if not columns["dxy"]:
         log.warning("FRED %s returned nothing, trying %s", FRED_SERIES["dxy"], YAHOO_DXY)
@@ -169,7 +182,7 @@ def build_price_rows(merged: dict[date, dict[str, float]]) -> list[dict]:
     out = []
     for day in sorted(merged):
         row: dict[str, object] = {"date": day.isoformat()}
-        for column in FRED_SERIES:
+        for column in PRICE_COLUMNS:
             row[column] = merged[day].get(column)
         out.append(row)
     return out

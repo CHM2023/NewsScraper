@@ -279,3 +279,48 @@ degrade cleanly without them) and `DATABASE_URL` (no workflow runs DDL, so
 shipping the database password to CI would widen the blast radius for nothing).
 Values were piped to `gh` over stdin rather than passed as `--body`, so no secret
 reached a command line or the shell history.
+
+## 2026-09-01 — BUG FOUND LIVE: PostgREST silently caps a select at 1000 rows
+`prices_daily` held 3651 rows after the backfill, but a default `select()`
+returned exactly 1000 - no error, no marker, the response just stops.
+`repo.fetch_fed_funds` therefore saw only 2016-09-01..2019-05-28, so
+`classify_regime` compared a 2019 rate with a 2019 rate, found no change, and
+tagged **all 71 events `holding`**. This is precisely the "confidently wrong
+answer" the concept doc's rule 2 exists to prevent, and nothing about the run
+looked wrong: `errors=0`, and today's events genuinely *are* holding, so the
+answer was right by coincidence. It would have mislabelled every historical
+event Stage 3 backfills.
+**Chosen:** `db/repo._fetch_paged()`, which pages with `.range()` until a short
+page arrives, applied to every unbounded reader (`fetch_event_weights`,
+`fetch_events_between`, `fetch_events_missing_actual`,
+`fetch_reminder_candidates`, `fetch_prices`). Each paged query now carries a
+second `.order("id")`/`.order("date")` tiebreaker, because paging a query whose
+sort has ties can repeat or skip rows. `fetch_recent_releases` keeps its explicit
+`.limit(10)` and is deliberately not paged.
+**Rejected:** raising PostgREST's `max-rows` server-side (it is a project-wide
+setting, and code that assumes an unbounded response is fragile regardless), and
+passing a large `.limit()` (moves the cliff rather than removing it).
+Verified after the fix: `fetch_fed_funds` returns 3649 rows spanning 2016-2026,
+and the classifier gives hiking for 2018 and 2022, cutting for 2020, holding for
+2024 and 2026. `tests/test_repo_paging.py` covers it.
+
+## 2026-09-01 — BUG FOUND LIVE: no free daily gold price left, and yfinance 0.2 is broken
+Two failures stacked on the most important column in the project:
+1. FRED's `GOLDPMGBD228NLBM` now returns `400 The series does not exist`, as does
+   `GOLDAMGBD228NLBM`. A FRED search turns up **no free daily spot gold series at
+   all** - only volatility indices (GVZCLS) and an index (NASDAQQGLDI).
+2. The designed fallback, yfinance `GC=F`, failed too:
+   `YFTzMissingError: possibly delisted; no timezone found`, a known break
+   between yfinance 0.2.x and Yahoo's current API.
+The net effect was a "successful" backfill - `errors=0`, 3649 rows - with
+`xau_close` **entirely null**.
+**Chosen:** pin `yfinance==1.7.0`, which works (`GC=F` returns 2512 closes over
+ten years, last 2026-08-31 = 4431.10), and set `FRED_GOLD_SERIES = None` so no
+run wastes a call on a retired series or logs an error for it. The constant is
+kept, documented, and preferred if it is ever set again.
+**Rejected:** Stooq's XAUUSD CSV, which now sits behind a JavaScript
+proof-of-work bot challenge and cannot be read from a script; and GLD as a proxy,
+which is an ETF price, not spot gold.
+**Watch:** gold now has a single unpinned-upstream source. If Yahoo breaks again,
+`xau_close` goes null silently - `prices_daily` should grow a check that fails
+the run when gold coverage over the last 30 weekdays drops below a threshold.

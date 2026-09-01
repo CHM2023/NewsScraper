@@ -6,11 +6,11 @@ Status values: todo / in progress / done / blocked.
 |---|------|--------|-------------|------|
 | 1 | Project skeleton | done | Pushed to origin main; remote head 7cf8744 matches local | none |
 | 2 | Supabase schema | done, VERIFIED LIVE | 5 tables reachable over PostgREST; event_weights = 27 rows | Applied by hand in the SQL editor, not via scripts/apply_schema.py |
-| 3 | Annual calendar skeleton | done | 22 tests; ids proven to match ff_sync; DST verified both sides of each changeover | Not yet run against live FRED - needs FRED_API_KEY |
-| 4 | ForexFactory weekly sync + diff | done | 34 tests against a captured feed; diff/NEW/CHANGED covered | Not yet run against live Supabase |
+| 3 | Annual calendar skeleton | done, VERIFIED LIVE | 46 rows written from live FRED+Fed; times correct (NFP 12:30Z, FOMC 18:00Z) | FRED only publishes release dates to year end - 4 months, not 12 |
+| 4 | ForexFactory weekly sync + diff | done, VERIFIED LIVE | 27 USD rows; 25 new + 2 merged onto skeleton rows; zero duplicate (date,title) pairs | next-week feed still 404, so forecasts cover ~1 week |
 | 5 | Telegram notifications + reminders | done | 35 tests; send never raises, reminders fire once | No Telegram credentials, so no live delivery test |
 | 6 | Actuals from FRED + surprise | done | 28 tests covering all five transforms | ISM unmapped by design; some FRED series ids unverified against the live API |
-| 7 | Daily prices + 10y backfill + regime | done | 66 tests: regime, blackout, source merge and gold fallback | dxy column holds the Fed broad index, not ICE DXY - see decisions.md |
+| 7 | Daily prices + 10y backfill + regime | done, VERIFIED LIVE | 3651 price rows 2016-2026, 2512 gold closes; regimes correct across history | gold depends solely on yfinance GC=F; dxy is the Fed broad index |
 | 8 | GitHub Actions workflows | done | 44 tests guard module names, secrets, crons and step order | Cannot run in GitHub Actions until the repo is pushed and secrets added |
 | 9 | Web: Today / This week | done | 39 web tests + live uvicorn check; HTMX polls every 300s; all data-utc verified UTC | Shows empty state until Supabase is configured |
 | 10 | Web: Calendar + event detail | done | FullCalendar in UTC, colour by weight, HTMX detail panel with the Stage 3 slot | Event detail is reachable from the calendar only, not from the today table |

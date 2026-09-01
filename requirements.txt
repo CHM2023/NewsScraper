@@ -9,7 +9,9 @@ requests==2.32.3
 pandas==2.2.3
 python-dotenv==1.0.1
 pytest==8.3.4
-yfinance==0.2.51
+# 0.2.x broke against Yahoo's current API (YFTzMissingError on every ticker),
+# which mattered because FRED no longer publishes a daily gold price at all.
+yfinance==1.7.0
 httpx==0.27.2
 # Windows ships no IANA tz database; zoneinfo needs this to resolve
 # America/New_York when converting release times to UTC.

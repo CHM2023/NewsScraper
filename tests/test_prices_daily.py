@@ -32,12 +32,12 @@ class TestCollectPrices:
         monkeypatch.setattr(
             pd.fred, "fetch_observations",
             fred_stub({
-                "GOLDPMGBD228NLBM": [(END, 2400.0)],
                 "DTWEXBGS": [(END, 121.5)],
                 "DFII10": [(END, 1.85)],
                 "DFF": [(END, 4.33)],
             }),
         )
+        monkeypatch.setattr(pd, "_yahoo_close", lambda *a, **k: {END: 2400.0})
         merged = pd.collect_prices("key", START, END, stats)
         assert merged[END] == {
             "xau_close": 2400.0,
@@ -50,7 +50,6 @@ class TestCollectPrices:
         monkeypatch.setattr(
             pd.fred, "fetch_observations",
             fred_stub({
-                "GOLDPMGBD228NLBM": [(END, 2400.0)],
                 "DTWEXBGS": [(END, 121.5)],
                 "DFII10": [(date(2020, 1, 1), 1.0), (END, 1.85)],
                 "DFF": [(END, 4.33)],
@@ -64,7 +63,6 @@ class TestCollectPrices:
         monkeypatch.setattr(
             pd.fred, "fetch_observations",
             fred_stub({
-                "GOLDPMGBD228NLBM": [(END, 2400.0)],
                 "DTWEXBGS": [(END, 121.5)],
                 "DFII10": [(END, 1.85)],
                 "DFF": [(END, 4.33), (date(2026, 8, 30), 4.33)],
@@ -74,11 +72,30 @@ class TestCollectPrices:
         assert merged[date(2026, 8, 30)] == {"fed_funds": 4.33}
 
 
-class TestGoldFallback:
-    def test_a_current_fred_series_is_used_as_is(self, monkeypatch, stats):
+class TestGoldSource:
+    """FRED withdrew its LBMA gold series, so Yahoo is the only source now."""
+
+    def test_no_fred_gold_series_is_configured(self):
+        assert pd.FRED_GOLD_SERIES is None
+
+    def test_fred_is_not_called_for_gold(self, monkeypatch, stats):
+        """A configured-away series must not cost a 400 on every run."""
+        asked = []
+
+        def spy(series_id, **kwargs):
+            asked.append(series_id)
+            return []
+
+        monkeypatch.setattr(pd.fred, "fetch_observations", spy)
+        monkeypatch.setattr(pd, "_yahoo_close", lambda *a, **k: {END: 2405.0})
+        pd.collect_prices("key", START, END, stats)
+        assert "GOLDPMGBD228NLBM" not in asked
+
+    def test_a_configured_fred_series_would_be_preferred(self, monkeypatch, stats):
+        """The door is left open if FRED ever publishes one again."""
+        monkeypatch.setattr(pd, "FRED_GOLD_SERIES", "SOMEGOLD")
         monkeypatch.setattr(
-            pd.fred, "fetch_observations",
-            fred_stub({"GOLDPMGBD228NLBM": [(END, 2400.0)]}),
+            pd.fred, "fetch_observations", fred_stub({"SOMEGOLD": [(END, 2400.0)]})
         )
         tickers = []
         monkeypatch.setattr(
@@ -86,7 +103,7 @@ class TestGoldFallback:
         )
         merged = pd.collect_prices("key", START, END, stats)
         assert merged[END]["xau_close"] == 2400.0
-        assert pd.YAHOO_GOLD not in tickers, "gold must not fall back when FRED is current"
+        assert pd.YAHOO_GOLD not in tickers
 
     def test_an_empty_fred_series_falls_back_to_yahoo(self, monkeypatch, stats):
         monkeypatch.setattr(pd.fred, "fetch_observations", fred_stub({}))
@@ -98,11 +115,12 @@ class TestGoldFallback:
         assert merged[END]["xau_close"] == 2405.0
 
     def test_a_stale_fred_series_falls_back(self, monkeypatch, stats):
-        """The LBMA series has been discontinued once already."""
+        """The LBMA series went stale before it was withdrawn entirely."""
         stale_day = END - timedelta(days=pd.STALE_AFTER_DAYS + 5)
+        monkeypatch.setattr(pd, "FRED_GOLD_SERIES", "SOMEGOLD")
         monkeypatch.setattr(
             pd.fred, "fetch_observations",
-            fred_stub({"GOLDPMGBD228NLBM": [(stale_day, 2300.0)]}),
+            fred_stub({"SOMEGOLD": [(stale_day, 2300.0)]}),
         )
         monkeypatch.setattr(
             pd, "_yahoo_close",
@@ -113,9 +131,10 @@ class TestGoldFallback:
 
     def test_fred_values_win_where_both_sources_have_a_date(self, monkeypatch, stats):
         stale_day = END - timedelta(days=pd.STALE_AFTER_DAYS + 5)
+        monkeypatch.setattr(pd, "FRED_GOLD_SERIES", "SOMEGOLD")
         monkeypatch.setattr(
             pd.fred, "fetch_observations",
-            fred_stub({"GOLDPMGBD228NLBM": [(stale_day, 2300.0)]}),
+            fred_stub({"SOMEGOLD": [(stale_day, 2300.0)]}),
         )
         monkeypatch.setattr(
             pd, "_yahoo_close",

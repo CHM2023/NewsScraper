@@ -24,6 +24,12 @@ NOTIFICATIONS_LOG = "notifications_log"
 # PostgREST rejects very large payloads; upserts go up in chunks of this size.
 CHUNK = 500
 
+# PostgREST caps an unbounded select at 1000 rows and says nothing about it: the
+# response simply stops. That silently truncated the 10-year Fed funds history to
+# 2016-2019, so every event was tagged with a 2019 rate and came out "holding".
+# Every unbounded read therefore pages explicitly. See decisions.md.
+PAGE = 1000
+
 
 def _t(table: str, client: Any | None = None):
     return (client or get_client()).table(table)
@@ -32,6 +38,23 @@ def _t(table: str, client: Any | None = None):
 def _chunks(rows: Sequence[dict], size: int = CHUNK) -> Iterable[Sequence[dict]]:
     for i in range(0, len(rows), size):
         yield rows[i : i + size]
+
+
+def _fetch_paged(make_query, *, page: int = PAGE) -> list[dict]:
+    """Read every row a query matches, not just PostgREST's first page.
+
+    ``make_query`` must return a *fresh* builder each call, ordered
+    deterministically - paging an unordered query can repeat or skip rows.
+    """
+    out: list[dict] = []
+    offset = 0
+    while True:
+        res = make_query().range(offset, offset + page - 1).execute()
+        rows = res.data or []
+        out.extend(rows)
+        if len(rows) < page:
+            return out
+        offset += page
 
 
 def _hydrate_event(row: dict) -> dict:
@@ -47,8 +70,10 @@ def _hydrate_event(row: dict) -> dict:
 # ---------------------------------------------------------------------------
 def fetch_event_weights(client: Any | None = None) -> dict[str, int]:
     """Every weight, keyed by lowercased title for case-insensitive matching."""
-    res = _t(EVENT_WEIGHTS, client).select("title, weight").execute()
-    return {r["title"].strip().lower(): int(r["weight"]) for r in (res.data or [])}
+    rows = _fetch_paged(
+        lambda: _t(EVENT_WEIGHTS, client).select("title, weight").order("title")
+    )
+    return {r["title"].strip().lower(): int(r["weight"]) for r in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -68,16 +93,18 @@ def fetch_events_between(
     client: Any | None = None,
 ) -> list[dict]:
     """Events with start <= ts_utc <= end, oldest first."""
-    q = (
-        _t(EVENTS, client)
-        .select("*")
-        .gte("ts_utc", iso_utc(start, field="start"))
-        .lte("ts_utc", iso_utc(end, field="end"))
-    )
-    if min_weight is not None:
-        q = q.gte("weight", min_weight)
-    res = q.order("ts_utc").execute()
-    return [_hydrate_event(r) for r in (res.data or [])]
+    def make_query():
+        q = (
+            _t(EVENTS, client)
+            .select("*")
+            .gte("ts_utc", iso_utc(start, field="start"))
+            .lte("ts_utc", iso_utc(end, field="end"))
+        )
+        if min_weight is not None:
+            q = q.gte("weight", min_weight)
+        return q.order("ts_utc").order("id")
+
+    return [_hydrate_event(r) for r in _fetch_paged(make_query)]
 
 
 def fetch_events_by_ids(
@@ -111,16 +138,18 @@ def fetch_events_missing_actual(
     since: datetime, until: datetime, client: Any | None = None
 ) -> list[dict]:
     """Past events still waiting on an actual. Drives fred_actuals."""
-    res = (
-        _t(EVENTS, client)
-        .select("*")
-        .gte("ts_utc", iso_utc(since, field="since"))
-        .lte("ts_utc", iso_utc(until, field="until"))
-        .is_("actual", "null")
-        .order("ts_utc")
-        .execute()
-    )
-    return [_hydrate_event(r) for r in (res.data or [])]
+    return [
+        _hydrate_event(r)
+        for r in _fetch_paged(
+            lambda: _t(EVENTS, client)
+            .select("*")
+            .gte("ts_utc", iso_utc(since, field="since"))
+            .lte("ts_utc", iso_utc(until, field="until"))
+            .is_("actual", "null")
+            .order("ts_utc")
+            .order("id")
+        )
+    ]
 
 
 def fetch_reminder_candidates(
@@ -139,17 +168,19 @@ def fetch_reminder_candidates(
     """
     if flag_column not in ("reminded_24h", "reminded_1h"):
         raise ValueError(f"unknown reminder flag: {flag_column}")
-    res = (
-        _t(EVENTS, client)
-        .select("*")
-        .gt("ts_utc", iso_utc(now, field="now"))
-        .lte("ts_utc", iso_utc(horizon, field="horizon"))
-        .gte("weight", min_weight)
-        .eq(flag_column, False)
-        .order("ts_utc")
-        .execute()
-    )
-    return [_hydrate_event(r) for r in (res.data or [])]
+    return [
+        _hydrate_event(r)
+        for r in _fetch_paged(
+            lambda: _t(EVENTS, client)
+            .select("*")
+            .gt("ts_utc", iso_utc(now, field="now"))
+            .lte("ts_utc", iso_utc(horizon, field="horizon"))
+            .gte("weight", min_weight)
+            .eq(flag_column, False)
+            .order("ts_utc")
+            .order("id")
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -203,15 +234,13 @@ def upsert_prices(rows: Sequence[dict], client: Any | None = None) -> int:
 def fetch_prices(
     start: date, end: date, columns: str = "*", client: Any | None = None
 ) -> list[dict]:
-    res = (
-        _t(PRICES_DAILY, client)
+    return _fetch_paged(
+        lambda: _t(PRICES_DAILY, client)
         .select(columns)
         .gte("date", start.isoformat())
         .lte("date", end.isoformat())
         .order("date")
-        .execute()
     )
-    return list(res.data or [])
 
 
 def fetch_fed_funds(
