@@ -57,6 +57,7 @@ app only reads.
 | `web/static/css/app.css` | Hand-written; no framework in this slice. |
 | `sql/001_init.sql` | Schema + `event_weights` seed. Run by hand in Supabase. |
 | `sql/002_short_title.sql` | Adds `event_weights.short_title` + 27 calendar abbreviations. **Not yet applied** - see `next-steps.md`. |
+| `sql/003_more_weights.sql` | Weights + short titles for 13 releases that were defaulting to 1. **Not yet applied.** |
 | `tests/fixtures/` | Captured API responses. Tests never hit the network. |
 
 The split between pure modules and I/O modules is deliberate: everything with

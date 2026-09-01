@@ -8,10 +8,12 @@ schema applied, and the three repository secrets set.
 
 ## 0. Two owner actions, both one paste each
 
-1. **Apply `sql/002_short_title.sql`** in the Supabase SQL editor. It adds
-   `event_weights.short_title` and seeds 27 abbreviations, and it is idempotent.
-   Until it runs the calendar falls back to full titles, which ellipsise in the
-   month grid. It could not be applied from here: `DATABASE_URL` is unset and
+1. **Apply `sql/002_short_title.sql`, then `sql/003_more_weights.sql`**, in that
+   order, in the Supabase SQL editor. Both are idempotent. 002 adds
+   `event_weights.short_title` and seeds 27 abbreviations; 003 weights 13
+   releases that currently fall through to 1, including the Beige Book and ADP
+   at 3. Until they run, calendar titles ellipsise and those 13 sit at weight 1.
+   Neither could be applied from here: `DATABASE_URL` is unset and
    `db.<ref>.supabase.co` resolves IPv6-only, which this machine cannot route.
 2. **Fix the first line of `.env`**, which is currently the mangled comment
    `####ConnectionStringdb postgresql://...` rather than an assignment. It
@@ -19,6 +21,15 @@ schema applied, and the three repository secrets set.
    **session pooler** host rather than the direct one so it works over IPv4.
    With that set, `python -m scripts.apply_schema sql/002_short_title.sql`
    applies migrations without the SQL editor. That script has still never run.
+
+3. **Decide the weights for four titles**, which were deliberately not invented.
+   All four appear in the current ForexFactory week and default to 1:
+   `API Weekly Statistical Bulletin`, `ISM Manufacturing Prices`,
+   `Omdia Total Vehicle Sales`, `RCM/TIPP Economic Optimism`. Weight 1 is
+   probably right for all of them, but that is the owner's call. Note the list
+   is not exhaustive: ForexFactory publishes only one week at a time, so new
+   unweighted titles will keep appearing. Re-run the survey in
+   `decisions.md` (2026-09-01, "weights that were defaulting to 1") occasionally.
 
 ## 1. Telegram: verify live
 

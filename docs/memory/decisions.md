@@ -597,3 +597,27 @@ which fires on every render, navigation and view change, and counts against the
 range actually on screen. Verified over CDP: first visit shows 48 events and no
 badge; 5/4/3/2/1 give 39/37/23/23/0 hidden; the choice survives a reload; and
 week and list recompute their own counts.
+
+## 2026-09-01 — Weights that were defaulting to 1
+`titles.DEFAULT_WEIGHT` is 1, so any ForexFactory title without an
+`event_weights` row lands at the bottom of the scale. That put the Beige Book
+and the ADP payrolls preview next to the API oil bulletin, which is the real
+reason a "hide weight 1" filter felt wrong: it was hiding useful releases along
+with the noise. `sql/003_more_weights.sql` seeds 13 of them.
+
+**One of the owner's titles did not exist.** The feed publishes
+`Challenger Job Cuts y/y`, not `Challenger Job Cuts`; seeding the shorter form
+would have matched nothing and left the row at weight 1 with no error anywhere -
+the same silent-miss shape as the earlier bugs. Seeded under the real title. The
+other twelve matched exactly, checked against the distinct titles in `events`.
+
+**Four titles left unweighted on purpose**, because inventing weights for rows
+the owner has not seen is how a scale stops meaning anything:
+`API Weekly Statistical Bulletin`, `ISM Manufacturing Prices`,
+`Omdia Total Vehicle Sales`, `RCM/TIPP Economic Optimism`. All four appear once,
+on 1 September, and all default to 1.
+
+**The survey is a snapshot, not a complete list.** ForexFactory publishes one
+week at a time, so the only unweighted titles visible are the ones in the window
+currently loaded. New ones will keep arriving; the query worth re-running is
+"distinct `events.title` with no `event_weights` row, after alias resolution".
