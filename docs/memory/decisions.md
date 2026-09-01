@@ -257,3 +257,25 @@ in by hand in the browser. **Rejected:** asking for a personal access token
 (a broader credential than the task needs, and one more secret to handle).
 Note SSH auth to GitHub already works, but that does not help: setting a
 repository secret goes through the REST API, which needs a token.
+
+## 2026-09-01 — supabase-py upgraded 2.11 -> 2.31 to accept `sb_secret_` keys
+The owner applied the schema by hand, but the first real client call failed with
+`SupabaseException: Invalid API key`. The key was not the problem: supabase-py
+2.11 validated it against a **JWT-shaped regex**
+(`^[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?...$`) and Supabase's current secret keys
+are `sb_secret_...`, which has no dots. The raw PostgREST probe with the same key
+had already authenticated, so the rejection was purely client-side.
+**Chosen:** upgrade to `supabase==2.31.0`, which drops that check entirely.
+Verified afterwards: all five tables reachable, 27 weights read back, suite still
+green. **Rejected:** asking for the legacy `service_role` JWT (it is the older,
+coarser credential and Supabase is migrating away from it), and monkey-patching
+the regex (leaves a landmine for the next person who upgrades).
+
+## 2026-09-01 — Repository secrets set, three of them
+`SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (from the `SUPABASE_SECRET_KEY` value) and
+`FRED_API_KEY`, confirmed with `gh secret list`. Deliberately **not** set:
+the two Telegram variables (no credentials this session, and the fetchers now
+degrade cleanly without them) and `DATABASE_URL` (no workflow runs DDL, so
+shipping the database password to CI would widen the blast radius for nothing).
+Values were piped to `gh` over stdin rather than passed as `--body`, so no secret
+reached a command line or the shell history.

@@ -5,7 +5,7 @@ Status values: todo / in progress / done / blocked.
 | # | Step | Status | Verified by | Gaps |
 |---|------|--------|-------------|------|
 | 1 | Project skeleton | done | Pushed to origin main; remote head 7cf8744 matches local | none |
-| 2 | Supabase schema | done | 5 tables + 27 seeded weights; SQL parses, not yet applied | Owner must run it in the Supabase SQL editor |
+| 2 | Supabase schema | done, VERIFIED LIVE | 5 tables reachable over PostgREST; event_weights = 27 rows | Applied by hand in the SQL editor, not via scripts/apply_schema.py |
 | 3 | Annual calendar skeleton | done | 22 tests; ids proven to match ff_sync; DST verified both sides of each changeover | Not yet run against live FRED - needs FRED_API_KEY |
 | 4 | ForexFactory weekly sync + diff | done | 34 tests against a captured feed; diff/NEW/CHANGED covered | Not yet run against live Supabase |
 | 5 | Telegram notifications + reminders | done | 35 tests; send never raises, reminders fire once | No Telegram credentials, so no live delivery test |
