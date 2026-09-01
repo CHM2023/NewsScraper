@@ -20,6 +20,7 @@ WORKFLOW_DIR = REPO_ROOT / ".github" / "workflows"
 FETCHERS_DIR = REPO_ROOT / "fetchers"
 
 WORKFLOWS = sorted(WORKFLOW_DIR.glob("*.yml"))
+SETUP_ACTION = REPO_ROOT / ".github" / "actions" / "python-env" / "action.yml"
 
 MODULE_RE = re.compile(r"python -m fetchers\.(\w+)")
 SECRET_RE = re.compile(r"\$\{\{\s*secrets\.(\w+)\s*\}\}")
@@ -31,9 +32,13 @@ def read(path: Path) -> str:
 
 
 class TestWorkflowsExist:
-    def test_the_three_scheduled_workflows_are_present(self):
+    def test_the_scheduled_workflows_are_present(self):
         names = {p.name for p in WORKFLOWS}
-        assert {"calendar-sync.yml", "reminders.yml", "daily.yml"} <= names
+        assert {
+            "actuals-hot.yml", "actuals-fomc.yml", "actuals-catchup.yml",
+            "ff-sync.yml", "reminders.yml", "prices-daily.yml",
+            "calendar-skeleton.yml",
+        } <= names
 
     def test_each_has_a_schedule_or_is_the_test_workflow(self):
         for path in WORKFLOWS:
@@ -64,13 +69,21 @@ class TestEachWorkflow:
                 f"common.config.KNOWN_VARS"
             )
 
-    def test_it_installs_the_pinned_requirements(self, path):
-        assert "pip install -r requirements.txt" in read(path), path.name
+    def test_it_checks_out_and_uses_the_shared_setup(self, path):
+        """Install and Python version live in one composite action.
 
-    def test_it_checks_out_and_sets_up_python(self, path):
+        checkout stays in the workflow: a local composite action cannot be
+        resolved until the repository it lives in has been checked out.
+        """
         text = read(path)
-        assert "actions/checkout@" in text
-        assert "actions/setup-python@" in text
+        assert "actions/checkout@" in text, path.name
+        assert "./.github/actions/python-env" in text, path.name
+
+    def test_it_cannot_run_for_an_hour(self, path):
+        assert "timeout-minutes: 5" in read(path), path.name
+
+    def test_overlapping_runs_are_prevented(self, path):
+        assert "concurrency:" in read(path), path.name
 
     def test_it_has_a_timeout(self, path):
         """An unbounded run can burn the free-tier minutes budget."""
@@ -84,37 +97,69 @@ class TestEachWorkflow:
             assert len(expression.split()) == 5, f"{path.name}: {expression!r}"
 
 
+class TestTheSharedSetup:
+    def test_it_installs_the_pinned_requirements(self):
+        assert "pip install -r requirements.txt" in read(SETUP_ACTION)
+
+    def test_it_sets_up_python(self):
+        assert "actions/setup-python@" in read(SETUP_ACTION)
+
+    def test_it_caches_pip_keyed_on_requirements(self):
+        """An uncached install is the slowest part of a 30-second run."""
+        text = read(SETUP_ACTION)
+        assert "actions/cache@" in text
+        assert "hashFiles('requirements.txt')" in text
+
+    def test_it_does_not_check_out(self):
+        """A local composite action cannot run before checkout has happened."""
+        assert "actions/checkout@" not in read(SETUP_ACTION)
+
+
 class TestSchedules:
-    def test_calendar_sync_runs_hourly(self):
-        assert CRON_RE.findall(read(WORKFLOW_DIR / "calendar-sync.yml")) == ["0 * * * *"]
+    EXPECTED = {
+        "actuals-hot.yml": "*/5 12,13,14,15 * * 1-5",
+        "actuals-fomc.yml": "*/5 17,18,19 * * 1-5",
+        "actuals-catchup.yml": "0 * * * *",
+        "ff-sync.yml": "*/30 * * * *",
+        "reminders.yml": "*/5 * * * *",
+        "prices-daily.yml": "30 21 * * 1-5",
+        "calendar-skeleton.yml": "0 6 * * *",
+    }
 
-    def test_reminders_run_every_fifteen_minutes(self):
-        assert CRON_RE.findall(read(WORKFLOW_DIR / "reminders.yml")) == ["*/15 * * * *"]
+    @pytest.mark.parametrize("name,cron", sorted(EXPECTED.items()))
+    def test_each_workflow_keeps_its_schedule(self, name, cron):
+        assert CRON_RE.findall(read(WORKFLOW_DIR / name)) == [cron], name
 
-    def test_daily_runs_once_a_day(self):
-        expressions = CRON_RE.findall(read(WORKFLOW_DIR / "daily.yml"))
-        assert len(expressions) == 1
-        minute, hour, *rest = expressions[0].split()
-        assert rest == ["*", "*", "*"]
-        assert minute.isdigit() and hour.isdigit()
+    def test_the_hot_window_covers_the_us_release_times(self):
+        """BLS and BEA publish at 12:30 UTC, ISM and JOLTS at 14:00."""
+        cron = self.EXPECTED["actuals-hot.yml"].split()
+        hours = {int(h) for h in cron[1].split(",")}
+        assert {12, 14} <= hours, "the 12:30 and 14:00 UTC releases must be covered"
 
-    def test_the_daily_job_runs_all_three_of_its_steps(self):
-        modules = MODULE_RE.findall(read(WORKFLOW_DIR / "daily.yml"))
-        assert set(modules) == {"calendar_skeleton", "fred_actuals", "prices_daily"}
+    def test_the_fomc_window_covers_the_statement_and_the_presser(self):
+        """18:00 UTC under EDT, 19:00 under EST, press conference 30m later."""
+        hours = {int(h) for h in self.EXPECTED["actuals-fomc.yml"].split()[1].split(",")}
+        assert {18, 19} <= hours
 
-    def test_the_daily_job_loads_prices_after_the_events_it_tags(self):
-        """prices_daily also tags regimes, so it must run last."""
-        modules = MODULE_RE.findall(read(WORKFLOW_DIR / "daily.yml"))
-        assert modules.index("calendar_skeleton") < modules.index("prices_daily")
+    def test_the_fomc_workflow_uses_the_cheap_early_exit(self):
+        """Without --fomc-only it would query FRED on 250 idle days a year."""
+        assert "--fomc-only" in read(WORKFLOW_DIR / "actuals-fomc.yml")
+
+    def test_catchup_looks_further_back_than_the_hot_path(self):
+        hot = read(WORKFLOW_DIR / "actuals-hot.yml")
+        catchup = read(WORKFLOW_DIR / "actuals-catchup.yml")
+        assert "--days 1" in hot
+        assert "--days 7" in catchup
 
     def test_notifying_workflows_carry_the_telegram_secrets(self):
-        for name in ("calendar-sync.yml", "reminders.yml"):
+        for name in ("ff-sync.yml", "reminders.yml"):
             secrets = set(SECRET_RE.findall(read(WORKFLOW_DIR / name)))
             assert {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"} <= secrets, name
 
     def test_fred_backed_workflows_carry_the_fred_key(self):
-        secrets = set(SECRET_RE.findall(read(WORKFLOW_DIR / "daily.yml")))
-        assert "FRED_API_KEY" in secrets
+        for name in ("actuals-hot.yml", "actuals-fomc.yml", "actuals-catchup.yml",
+                     "prices-daily.yml", "calendar-skeleton.yml"):
+            assert "FRED_API_KEY" in set(SECRET_RE.findall(read(WORKFLOW_DIR / name))), name
 
     def test_every_workflow_that_writes_has_supabase_credentials(self):
         for path in WORKFLOWS:
@@ -123,11 +168,6 @@ class TestSchedules:
                 continue
             secrets = set(SECRET_RE.findall(text))
             assert {"SUPABASE_URL", "SUPABASE_SERVICE_KEY"} <= secrets, path.name
-
-    def test_overlapping_runs_are_prevented(self):
-        """Two concurrent runs would diff the same state and double-send."""
-        for name in ("calendar-sync.yml", "reminders.yml", "daily.yml"):
-            assert "concurrency:" in read(WORKFLOW_DIR / name), name
 
 
 class TestSecretsDocumented:

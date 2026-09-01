@@ -1,0 +1,27 @@
+# The safety net. A print can be late, revised, or missed entirely because a
+# scheduled run was dropped - GitHub does not guarantee cron delivery. This
+# sweeps the last seven days every hour and fills whatever is still blank.
+name: actuals-catchup
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: actuals-catchup
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/python-env
+      - name: fred_actuals
+        run: python -m fetchers.fred_actuals --days 7

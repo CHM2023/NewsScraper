@@ -1,0 +1,39 @@
+# Release schedules change rarely, and FRED only publishes dates to the end of
+# the current calendar year, so once a day at 06:00 UTC is plenty. This is also
+# what extends the horizon as FRED publishes further out.
+name: calendar-skeleton
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      months_back:
+        description: "Also load this many months of past release dates"
+        required: false
+        default: ""
+
+concurrency:
+  group: calendar-skeleton
+  cancel-in-progress: false
+
+jobs:
+  skeleton:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/python-env
+      - name: calendar_skeleton
+        env:
+          MONTHS_BACK: ${{ github.event.inputs.months_back }}
+        run: |
+          if [ -n "$MONTHS_BACK" ]; then
+            python -m fetchers.calendar_skeleton --months-back "$MONTHS_BACK"
+          else
+            python -m fetchers.calendar_skeleton
+          fi

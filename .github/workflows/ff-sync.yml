@@ -1,21 +1,21 @@
-# Every five minutes: send the reminders that are due. The flags in the events
-# table make this safe to run as often as we like, and a run with nothing due
-# costs one Supabase query per tier and exits in seconds.
-name: reminders
+# ForexFactory forecasts. Consensus moves a few times a week, not hourly, so
+# half-hourly is already generous; the diff means an unchanged feed writes
+# nothing and sends nothing.
+name: ff-sync
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 concurrency:
-  # Two overlapping runs could both read the same un-flagged event and send it
-  # twice, so serialise them.
-  group: reminders
+  # Two syncs racing would diff against the same pre-write state and send the
+  # same NEW message twice.
+  group: ff-sync
   cancel-in-progress: false
 
 jobs:
-  remind:
+  sync:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -26,5 +26,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/python-env
-      - name: reminders
-        run: python -m fetchers.reminders
+      - name: ff_sync
+        run: python -m fetchers.ff_sync

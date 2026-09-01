@@ -1,0 +1,27 @@
+# Shared setup for every workflow: Python 3.12 and the pinned requirements,
+# with pip's download cache keyed on requirements.txt so an unchanged file
+# restores instead of re-downloading. Eight workflows needed the same four
+# steps; this is the one place to change the Python version or the install.
+#
+# actions/checkout is deliberately NOT here. A local composite action lives in
+# the repository, so the repository has to be checked out before this action
+# can be resolved - the checkout step stays in each workflow.
+name: python-env
+description: Python 3.12 plus the pinned requirements, with a pip cache.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ runner.os }}-py312-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          pip-${{ runner.os }}-py312-
+
+    - run: pip install -r requirements.txt
+      shell: bash

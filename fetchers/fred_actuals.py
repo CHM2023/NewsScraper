@@ -10,7 +10,7 @@ rule is "the newest observation dated before the release". A Fed decision is the
 opposite: the number that matters is the one that takes effect on the day, so
 those series are read at or after the event date instead.
 
-Run: ``python -m fetchers.fred_actuals [--days 7] [--dry-run]``
+Run: ``python -m fetchers.fred_actuals [--days 7] [--fomc-only] [--dry-run]``
 """
 
 from __future__ import annotations
@@ -167,15 +167,45 @@ def _fetch_windows(
     return windows
 
 
-def run(days: int = DEFAULT_DAYS, *, dry_run: bool = False) -> Stats:
+# The only two FOMC-day titles that carry a number: the statement and the target
+# range both read DFEDTARU. The press conference and the projections have no
+# single figure, so a --fomc-only run that looked for them would find work it
+# could never do.
+FOMC_ACTUAL_TITLES = frozenset({"fomc statement", "federal funds rate"})
+
+
+def run(
+    days: int = DEFAULT_DAYS, *, fomc_only: bool = False, dry_run: bool = False
+) -> Stats:
     stats = Stats("fred_actuals")
     api_key = config.require("FRED_API_KEY")
 
     now = now_utc()
     since = now - timedelta(days=days)
     events = repo.fetch_events_missing_actual(since, now)
+    if fomc_only:
+        events = [
+            e for e in events
+            if str(e.get("title", "")).strip().lower() in FOMC_ACTUAL_TITLES
+        ]
+
+    # The early exit that makes a five-minute cron affordable. On the ~250 days a
+    # year with no Fed decision, and outside a release window on any other day,
+    # this is the whole run: one Supabase query, one log line, done. Everything
+    # expensive - the FRED windows - is below this line.
+    if not events:
+        log.info(
+            "nothing to do: no %sevent in the last %d day(s) is missing an actual",
+            "FOMC " if fomc_only else "", days,
+        )
+        stats.log(log)
+        return stats
+
     stats.fetched = len(events)
-    log.info("%d event(s) in the last %d days still missing an actual", len(events), days)
+    log.info(
+        "%d %sevent(s) in the last %d days still missing an actual",
+        len(events), "FOMC " if fomc_only else "", days,
+    )
 
     # Resolve every event to a series first, so each series can be fetched once
     # over a window that covers *all* the dates referencing it. Fetching per
@@ -251,11 +281,15 @@ def main() -> None:
         "--days", type=int, default=DEFAULT_DAYS,
         help=f"how far back to look for gaps (default {DEFAULT_DAYS})",
     )
+    parser.add_argument(
+        "--fomc-only", action="store_true",
+        help="only fill FOMC decision events; exit immediately when there are none",
+    )
     parser.add_argument("--dry-run", action="store_true", help="report, write nothing")
     args = parser.parse_args()
 
     configure_logging()
-    run(days=args.days, dry_run=args.dry_run)
+    run(days=args.days, fomc_only=args.fomc_only, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

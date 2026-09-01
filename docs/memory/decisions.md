@@ -621,3 +621,65 @@ on 1 September, and all default to 1.
 week at a time, so the only unweighted titles visible are the ones in the window
 currently loaded. New ones will keep arriving; the query worth re-running is
 "distinct `events.title` with no `event_weights` row, after alias resolution".
+
+## 2026-09-01 — Repository made public, and what that did and did not buy
+`gh repo view` reported **PRIVATE**, which caps Actions at 2,000 Linux minutes a
+month. GitHub bills each job **rounded up to a whole minute**, and these runs
+take 24-41 seconds, so cost is driven entirely by the *number* of runs. That
+makes the pip cache a latency win, not a cost win - the opposite of the
+assumption in the brief.
+
+| Schedule | Runs/month | Billed minutes | Over the 2,000 cap |
+|---|---|---|---|
+| Old (hourly + */15 + daily) | 3,733 | 3,733 | 1,733 -> ~$13.87/mo |
+| This one (incl. headlines) | 15,806 | 15,806 | 13,806 -> ~$110.44/mo |
+
+**Chosen, by the owner: make the repository public**, which makes Actions free
+and unlimited. Checked the whole history first - all 22 commits - for the real
+values in `.env`: database password, project host, `SUPABASE_URL`,
+`SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `FRED_API_KEY`. None appears
+in any commit; `.env` has never been tracked. The only matches for `sb_secret_`
+are the literal prefix in prose. **If a key is ever pasted into a file, rotating
+it is now mandatory, not optional - the history is world-readable.**
+
+## 2026-09-01 — Sub-hour freshness is not achievable on GitHub Actions
+Measured, not assumed. `reminders` was scheduled `*/15`. Between
+2026-08-31T21:28Z and 2026-09-01T10:29Z it should have run about 52 times.
+`total_count` from the API says it ran **4**, with gaps of 3h16m, 4h59m and
+4h46m. `calendar-sync`, scheduled hourly, ran 4 times in 22 hours.
+That is roughly 1.5-17% of the requested rate. GitHub's scheduled workflows are
+queued, not guaranteed: they run late under load and are dropped entirely under
+enough of it. **Overlapping five-minute windows reduce the damage; they do not
+remove it.** The `*/5` windows in `actuals-hot` and `actuals-fomc` are the best
+this infrastructure can do, not a five-minute guarantee, and the real mechanism
+for correctness is `actuals-catchup`, which re-sweeps seven days every hour.
+Going public should improve delivery - free private repos are throttled hardest -
+but it does not make cron a contract.
+
+**What would actually be needed**, if release-moment freshness ever mattered:
+- **Supabase `pg_cron` + `pg_net`**, already in the stack and reliable to the
+  minute, calling a Postgres function or an Edge Function. No new hosting.
+  Means moving fetch logic out of Python into SQL or Deno, which is the cost.
+- **A small always-on worker** - Render at ~$7/month, or Fly.io - running the
+  existing Python on an internal scheduler. Keeps all the code; adds a host and
+  a bill. Render's free tier sleeps after 15 minutes idle and is not an option.
+Neither is worth doing before the event study needs it; recorded so the choice
+is a decision rather than a rediscovery.
+
+## 2026-09-01 — Workflow structure: seven schedules and one composite action
+Split the old `daily.yml` and `calendar-sync.yml` into schedules that match when
+data actually arrives: `actuals-hot` (*/5 across 12:00-15:59 UTC weekdays, the
+BLS/BEA 12:30 and ISM/JOLTS 14:00 prints), `actuals-fomc` (*/5 across
+17:00-19:59, statement and press conference), `actuals-catchup` (hourly, seven
+days), `ff-sync` (*/30), `reminders` (*/5), `prices-daily` (21:30 weekdays,
+after the close), `calendar-skeleton` (06:00 daily).
+Every one has `timeout-minutes: 5`, `workflow_dispatch` and a concurrency group.
+The four shared setup steps live in `.github/actions/python-env`, so the Python
+version and the install exist once rather than eight times.
+`actions/checkout` deliberately stays in each workflow: a *local* composite
+action cannot be resolved until the repository containing it is checked out.
+**Early exits.** `fred_actuals` now returns after one Supabase query when
+nothing is missing an actual, before any FRED call, and `--fomc-only` narrows
+that to the two FOMC titles that carry a number (statement and target range;
+the press conference and the projections have no single figure). Measured on a
+non-FOMC day: 3.8 seconds end to end including interpreter start.

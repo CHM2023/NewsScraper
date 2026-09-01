@@ -1,0 +1,31 @@
+# Fed decision days. The statement and the new target range land at 18:00 UTC
+# (19:00 under EST) and the press conference at 18:30, so this covers
+# 17:00-19:59 UTC on weekdays.
+#
+# --fomc-only makes this nearly free on the ~250 days a year with no meeting:
+# one Supabase query finds no FOMC event missing an actual, one line is logged,
+# and the run returns before touching FRED.
+name: actuals-fomc
+
+on:
+  schedule:
+    - cron: "*/5 17,18,19 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: actuals-fomc
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/python-env
+      - name: fred_actuals (FOMC only)
+        run: python -m fetchers.fred_actuals --days 1 --fomc-only

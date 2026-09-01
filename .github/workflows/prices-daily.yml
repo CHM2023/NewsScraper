@@ -1,0 +1,39 @@
+# 21:30 UTC on weekdays: after the US cash close, when the day's gold close is
+# final. Also re-tags event regimes from the Fed funds history it loads, so it
+# has to run after the events exist.
+name: prices-daily
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      backfill_years:
+        description: "Load this many years of history (blank = incremental)"
+        required: false
+        default: ""
+
+concurrency:
+  group: prices-daily
+  cancel-in-progress: false
+
+jobs:
+  prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/python-env
+      - name: prices_daily
+        env:
+          BACKFILL_YEARS: ${{ github.event.inputs.backfill_years }}
+        run: |
+          if [ -n "$BACKFILL_YEARS" ]; then
+            python -m fetchers.prices_daily --backfill-years "$BACKFILL_YEARS"
+          else
+            python -m fetchers.prices_daily
+          fi

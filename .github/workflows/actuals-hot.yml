@@ -1,0 +1,30 @@
+# The main US release window. BLS and BEA publish at 12:30 UTC and ISM/JOLTS at
+# 14:00 UTC, so this covers 12:00-15:59 UTC on weekdays at five-minute
+# intervals, wide enough to absorb the delay GitHub adds under load.
+#
+# It looks back one day only: this is the fast path for a release that has just
+# landed, not the safety net. actuals-catchup owns late prints and revisions.
+name: actuals-hot
+
+on:
+  schedule:
+    - cron: "*/5 12,13,14,15 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: actuals-hot
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/python-env
+      - name: fred_actuals
+        run: python -m fetchers.fred_actuals --days 1
